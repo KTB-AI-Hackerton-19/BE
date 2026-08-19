@@ -1,0 +1,73 @@
+package com.hackathon.backend.dto.gift;
+
+import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.domain.GiftRecord;
+import com.hackathon.backend.domain.GiftRecordStatus;
+import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.support.MoneyFormatter;
+import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+/** 프론트 디자인의 record 객체와 필드가 1:1로 대응되는 응답. 화면에서 추가 가공 없이 그대로 쓸 수 있게 구성했다. */
+@Schema(description = "받은 마음(선물·부조금) 한 건")
+public record GiftRecordResponse(
+        @Schema(description = "기록 ID", example = "1") Long id,
+
+        @Schema(description = "보낸 사람 Person ID (DRAFT 상태면 null)", example = "3") Long personId,
+        @Schema(description = "보낸 사람 이름 — 화면의 person", example = "김민수") String person,
+        @Schema(description = "관계 — 화면의 relation", example = "친한 친구") String relation,
+
+        @Schema(description = "받은 날짜 — 화면의 date", example = "2026-08-18") LocalDate date,
+        @Schema(description = "답례 알림일 — 화면의 reminderDate (미설정이면 null)", example = "2026-09-14") LocalDate reminderDate,
+        @Schema(description = "받은 이유 (자유 텍스트) — 화면의 occasion", example = "내 생일") String occasion,
+        @Schema(description = "선물명 — 화면의 gift", example = "스타벅스 케이크") String gift,
+
+        @Schema(description = "카테고리 ID", example = "1") Long categoryId,
+        @Schema(description = "카테고리 이름 — 화면의 category (필터 칩 비교에 사용)", example = "디저트") String category,
+
+        @Schema(description = "금액(원) 정수 — 정렬·집계·필터용", example = "35000") Integer amount,
+        @Schema(description = "포맷된 금액 문자열 — 화면의 price. 그대로 출력하면 됨", example = "35,000원") String price,
+
+        @Schema(description = "카테고리에서 파생된 이모지 — 화면의 emoji", example = "🍰") String emoji,
+        @Schema(description = "카테고리에서 파생된 카드 배경 테마 — 화면의 color", example = "mint") String color,
+
+        @Schema(description = "감사/답례 완료 여부 — true면 '감사 완료', false면 '확인 필요' 뱃지", example = "true") boolean thanked,
+
+        @Schema(description = "AI가 이미지에서 추출한 보낸 사람 이름 (확정 전 확인 폼 프리필용)", example = "김민수") String extractedSenderName,
+        @Schema(description = "AI가 추측한 관계 (확정 전 확인 폼 프리필용)", example = "친한 친구") String extractedRelationship,
+        @Schema(description = "원본 이미지 조회용 presigned GET URL (매 응답마다 새로 발급, 15분 만료)") String imageUrl,
+
+        @Schema(description = "DRAFT(AI 추출 직후, 사용자 확인 전) 또는 CONFIRMED(사용자 확정 완료)") GiftRecordStatus status,
+        @Schema(description = "기록 생성 시각") LocalDateTime createdAt
+) {
+    private static final String DEFAULT_EMOJI = "🎁";
+    private static final String DEFAULT_COLOR = "blue";
+
+    public static GiftRecordResponse from(GiftRecord record, String imageUrl) {
+        Person person = record.getPerson();
+        Category category = record.getCategory();
+        return new GiftRecordResponse(
+                record.getId(),
+                person != null ? person.getId() : null,
+                person != null ? person.getName() : record.getExtractedSenderName(),
+                person != null ? person.getRelationship() : record.getExtractedRelationship(),
+                record.getReceivedDate(),
+                record.getReminderDate(),
+                record.getOccasion(),
+                record.getGiftName(),
+                category != null ? category.getId() : null,
+                category != null ? category.getName() : null,
+                record.getAmount(),
+                MoneyFormatter.format(record.getAmount()),
+                category != null ? category.getEmoji() : DEFAULT_EMOJI,
+                category != null ? category.getColor() : DEFAULT_COLOR,
+                record.isThanked(),
+                record.getExtractedSenderName(),
+                record.getExtractedRelationship(),
+                imageUrl,
+                record.getStatus(),
+                record.getCreatedAt()
+        );
+    }
+}

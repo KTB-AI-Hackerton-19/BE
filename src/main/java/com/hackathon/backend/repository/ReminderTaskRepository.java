@@ -1,0 +1,45 @@
+package com.hackathon.backend.repository;
+
+import com.hackathon.backend.domain.ReminderStatus;
+import com.hackathon.backend.domain.ReminderTask;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface ReminderTaskRepository extends JpaRepository<ReminderTask, Long> {
+
+    @EntityGraph(attributePaths = {"person", "giftRecord", "giftRecord.category"})
+    List<ReminderTask> findByUser_UsernameOrderByScheduledAtAsc(String username);
+
+    @EntityGraph(attributePaths = {"person", "giftRecord", "giftRecord.category"})
+    List<ReminderTask> findByUser_UsernameAndScheduledAtGreaterThanEqualOrderByScheduledAtAsc(
+            String username, LocalDate from);
+
+    @EntityGraph(attributePaths = {"person", "giftRecord", "giftRecord.category"})
+    List<ReminderTask> findByUser_UsernameAndScheduledAtBetweenOrderByScheduledAtAsc(
+            String username, LocalDate start, LocalDate end);
+
+    Optional<ReminderTask> findByGiftRecord_Id(Long giftRecordId);
+
+    void deleteByGiftRecord_Id(Long giftRecordId);
+
+    long countByUser_UsernameAndScheduledAtGreaterThanEqual(String username, LocalDate from);
+
+    Page<ReminderTask> findByStatusAndScheduledAtLessThanEqual(ReminderStatus status, LocalDate date, Pageable pageable);
+
+    /** 발송은 됐지만 아직 화면에 띄우지 않은 알림 — 프론트가 토스트로 표시할 대상 */
+    @EntityGraph(attributePaths = {"person", "giftRecord", "giftRecord.category"})
+    List<ReminderTask> findByUser_UsernameAndStatusAndDeliveredFalseOrderByScheduledAtAsc(
+            String username, ReminderStatus status);
+
+    @EntityGraph(attributePaths = {"person", "giftRecord", "giftRecord.category"})
+    Optional<ReminderTask> findByIdAndUser_Username(Long id, String username);
+
+    @EntityGraph(attributePaths = {"person", "giftRecord", "giftRecord.category"})
+    List<ReminderTask> findByUser_UsernameAndStatusAndScheduledAtLessThanEqual(
+            String username, ReminderStatus status, LocalDate date);
+}
