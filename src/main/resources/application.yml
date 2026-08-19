@@ -13,14 +13,14 @@ spring:
         format_sql: true
 
 jwt:
-  secret: hackathon-demo-secret-key-please-change-before-production-use-1234567890
+  secret: ${JWT_SECRET:hackathon-demo-secret-key-please-change-before-production-use-1234567890}
   access-token-expiration-ms: 43200000   # 12h
   refresh-token-expiration-ms: 604800000 # 7d
 
 aws:
   region: ${AWS_REGION:ap-northeast-2}
   s3:
-    bucket: ${S3_BUCKET:hackathon-dev-bucket}
+    bucket: ${S3_BUCKET:ktb-ai-hackathon-451071929405-ap-northeast-2-an}
 
 ai:
   service:
