@@ -7,8 +7,10 @@ import com.hackathon.backend.dto.person.PersonDetailResponse;
 import com.hackathon.backend.dto.person.PersonDeleteResponse;
 import com.hackathon.backend.dto.person.PersonRequest;
 import com.hackathon.backend.dto.person.PersonResponse;
+import com.hackathon.backend.dto.recommendation.RecommendationResponse;
 import com.hackathon.backend.service.GiftRecordService;
 import com.hackathon.backend.service.PersonService;
+import com.hackathon.backend.service.RecommendationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -31,10 +33,13 @@ public class PersonController {
 
     private final PersonService personService;
     private final GiftRecordService giftRecordService;
+    private final RecommendationService recommendationService;
 
-    public PersonController(PersonService personService, GiftRecordService giftRecordService) {
+    public PersonController(PersonService personService, GiftRecordService giftRecordService,
+                            RecommendationService recommendationService) {
         this.personService = personService;
         this.giftRecordService = giftRecordService;
+        this.recommendationService = recommendationService;
     }
 
     @Operation(
@@ -79,6 +84,22 @@ public class PersonController {
             @RequestParam(required = false, defaultValue = "20") int size) {
         personService.get(id); // 소유권 검증 (다른 사용자의 사람이면 404)
         return ApiResponse.success(giftRecordService.listByPerson(id, page, size));
+    }
+
+    @Operation(
+            summary = "사람별 선물 추천 조회",
+            description = "특정 사람 한 명을 지정해 그 사람의 관계·메모·지난 선물을 근거로 만든 추천 선물 목록을 조회한다. "
+                    + "한 번 생성된 추천은 저장해두고 재사용하므로 화면 진입 때마다 AI를 다시 부르지 않는다. "
+                    + "'다시 추천받기' 버튼에서는 refresh=true로 호출하면 기존 추천을 버리고 새로 생성한다. "
+                    + "AI_SERVICE_URL이 설정되지 않았거나 호출이 실패하면 하드코딩 더미 결과를 반환하므로 지금도 화면을 붙일 수 있다."
+    )
+    @GetMapping("/{id}/recommendations")
+    public ApiResponse<List<RecommendationResponse>> recommendations(
+            @Parameter(description = "추천 대상 사람 ID") @PathVariable Long id,
+            @Parameter(description = "추천 개수 (기본 3, 최대 10)", example = "3") @RequestParam(required = false) Integer limit,
+            @Parameter(description = "true면 저장된 추천을 버리고 새로 생성 ('다시 추천받기')", example = "false")
+            @RequestParam(required = false, defaultValue = "false") boolean refresh) {
+        return ApiResponse.success(recommendationService.listForPerson(id, limit, refresh));
     }
 
     @Operation(

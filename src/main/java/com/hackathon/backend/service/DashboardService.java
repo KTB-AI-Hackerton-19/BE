@@ -61,7 +61,7 @@ public class DashboardService {
 
         int recommendCount = (recommendationLimit == null || recommendationLimit <= 0)
                 ? DEFAULT_RECOMMENDATION_LIMIT : Math.min(recommendationLimit, 10);
-        List<RecommendationResponse> recommendations = recommendationService.list(
+        List<RecommendationResponse> recommendations = recommendationService.listForPerson(
                 insight != null ? insight.personId() : null, recommendCount, false);
 
         return new DashboardResponse(today, stats, insight, recentRecords.content(), recommendations);
