@@ -3,6 +3,7 @@ package com.hackathon.backend.service;
 import com.hackathon.backend.client.AiExtractionClient;
 import com.hackathon.backend.client.AiExtractionResult;
 import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.domain.Person;
@@ -149,8 +150,8 @@ public class GiftRecordService {
     /** 마음 기록 목록 — 카테고리/사람/기간/검색어/감사여부 필터 + 정렬 + 페이징. */
     @Transactional(readOnly = true)
     public PageResponse<GiftRecordResponse> search(Long categoryId, String categoryName, Long personId,
-                                                   Boolean thanked, GiftRecordStatus status,
-                                                   LocalDate startDate, LocalDate endDate, String q,
+                                                   Boolean thanked, GiftRecordStatus status, String kind,
+                                                   LocalDate startDate, LocalDate endDate, String q, String personName,
                                                    String sort, int page, int size) {
         String username = SecurityUtils.getCurrentUsername();
         Long resolvedCategoryId = categoryId;
@@ -162,7 +163,8 @@ public class GiftRecordService {
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100), toSort(sort));
         Page<GiftRecord> result = giftRecordRepository.search(
                 username, status, resolvedCategoryId, personId, thanked,
-                startDate, endDate, trimToNull(q), pageable);
+                kind == null || kind.isBlank(), GiftKind.parseFilter(kind),
+                startDate, endDate, trimToNull(personName), trimToNull(q), pageable);
 
         List<GiftRecordResponse> content = result.getContent().stream().map(r -> toResponse(r, false)).toList();
         return PageResponse.of(result, content);

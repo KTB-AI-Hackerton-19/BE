@@ -8,6 +8,10 @@ public record PresignedUrlRequest(
         @NotBlank(message = "fileName을 입력해주세요.") String fileName,
 
         @Schema(description = "파일 Content-Type (image/*만 허용)", example = "image/jpeg")
-        @NotBlank(message = "contentType을 입력해주세요.") String contentType
+        @NotBlank(message = "contentType을 입력해주세요.") String contentType,
+
+        @Schema(description = "용도. GIFT(기본, 선물 사진) 또는 PROFILE(프로필 사진). 저장 경로가 갈린다",
+                example = "GIFT", allowableValues = {"GIFT", "PROFILE"})
+        String purpose
 ) {
 }

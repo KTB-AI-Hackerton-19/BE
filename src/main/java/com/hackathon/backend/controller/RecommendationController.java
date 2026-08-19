@@ -36,7 +36,7 @@ public class RecommendationController {
             @Parameter(description = "추천 대상 Person ID (생략 시 전체 기록 기준)", example = "3")
             @RequestParam(required = false) Long personId,
             @Parameter(description = "추천 개수 (기본 3, 최대 10)", example = "3") @RequestParam(required = false) Integer limit,
-            @Parameter(description = "true면 저장된 추천을 버리고 새로 생성 ('다시 추천받기')", example = "false")
+            @Parameter(description = "true면 저장된 추천을 버리ㅌ고 새로 생성 ('다시 추천받기')", example = "false")
             @RequestParam(required = false, defaultValue = "false") boolean refresh) {
         return ApiResponse.success(recommendationService.list(personId, limit, refresh));
     }

@@ -28,12 +28,19 @@ public class GiftAssetController {
     @Operation(
             summary = "presigned URL 발급",
             description = "사진 촬영 직후 호출. 발급받은 uploadUrl로 클라이언트가 S3에 직접 PUT 업로드하고, "
-                    + "이후 imageKey를 /api/gift-records/extract에 전달해 AI 분석을 요청한다."
+                    + "이후 imageKey를 /api/gift-records/extract에 전달해 AI 분석을 요청한다. "
+                    + "프로필 사진을 올릴 때는 purpose=PROFILE로 요청하고, 받은 imageKey를 "
+                    + "PATCH /api/users/me 의 profileImageKey로 전달한다."
     )
     @PostMapping("/presigned-url")
     public ApiResponse<PresignedUrlResponse> presignedUrl(@Valid @RequestBody PresignedUrlRequest request) {
         String username = SecurityUtils.getCurrentUsername();
-        PresignedUploadResult result = s3PresignService.createPutUrl(username, request.fileName(), request.contentType());
+        // purpose에 따라 저장 경로를 나눈다(gift-images / profile-images). 생략하면 선물 사진.
+        String prefix = "PROFILE".equalsIgnoreCase(request.purpose())
+                ? S3PresignService.PROFILE_PREFIX
+                : S3PresignService.GIFT_PREFIX;
+        PresignedUploadResult result =
+                s3PresignService.createPutUrl(username, request.fileName(), request.contentType(), prefix);
         return ApiResponse.success(new PresignedUrlResponse(result.imageKey(), result.uploadUrl(), result.expiresInSeconds()));
     }
 }

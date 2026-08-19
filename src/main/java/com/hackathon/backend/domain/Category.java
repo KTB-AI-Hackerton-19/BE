@@ -2,6 +2,8 @@ package com.hackathon.backend.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -39,6 +41,14 @@ public class Category {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    /**
+     * 이 카테고리가 어느 탭에 속하는지. 화면 상단의 "선물 / 경조사" 탭이 이 값으로 갈린다.
+     * 경조사 안에서 경사(CELEBRATION)와 조사(CONDOLENCE)가 더 나뉜다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private GiftKind kind;
+
     /** 화면에 그대로 노출되는 이름 (예: "디저트"). 같은 사용자 안에서 중복 불가 */
     @Column(nullable = false, length = 50)
     private String name;
@@ -59,8 +69,10 @@ public class Category {
     @Column(nullable = false)
     private boolean active;
 
-    public Category(User user, String name, String emoji, String color, Integer displayOrder, boolean active) {
+    public Category(User user, String name, String emoji, String color, Integer displayOrder, boolean active,
+                    GiftKind kind) {
         this.user = user;
+        this.kind = kind == null ? GiftKind.GIFT : kind;
         this.name = name;
         this.emoji = emoji;
         this.color = color;
@@ -68,7 +80,10 @@ public class Category {
         this.active = active;
     }
 
-    public void update(String name, String emoji, String color, Integer displayOrder, Boolean active) {
+    public void update(String name, String emoji, String color, Integer displayOrder, Boolean active, GiftKind kind) {
+        if (kind != null) {
+            this.kind = kind;
+        }
         if (name != null && !name.isBlank()) {
             this.name = name;
         }

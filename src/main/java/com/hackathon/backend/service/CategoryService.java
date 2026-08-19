@@ -1,6 +1,7 @@
 package com.hackathon.backend.service;
 
 import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.category.CategoryRequest;
@@ -12,6 +13,8 @@ import com.hackathon.backend.repository.CategoryRepository;
 import com.hackathon.backend.repository.GiftRecordRepository;
 import com.hackathon.backend.repository.UserRepository;
 import com.hackathon.backend.security.SecurityUtils;
+import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,19 +35,27 @@ public class CategoryService {
     /** 이름이 매칭 안 될 때 폴백으로 쓰는 카테고리. 이것만은 삭제할 수 없다. */
     public static final String FALLBACK_CATEGORY_NAME = "기타";
 
-    /** 가입 시 복제해줄 기본 카테고리. 이름, 이모지, 색, 정렬순서. */
-    private record Seed(String name, String emoji, String color, int displayOrder) {
+    /** 가입 시 복제해줄 기본 카테고리. 이름, 이모지, 색, 정렬순서, 속한 탭. */
+    private record Seed(String name, String emoji, String color, int displayOrder, GiftKind kind) {
     }
 
+    /**
+     * 화면 상단 탭이 kind로 갈린다 — [선물] 탭에는 GIFT가, [경조사] 탭에는 경사·조사가 모인다.
+     * displayOrder를 탭별로 100단위씩 띄워둬서 나중에 사이에 끼워 넣기 쉽다.
+     */
     private static final List<Seed> DEFAULTS = List.of(
-            new Seed("디저트", "🍰", "mint", 10),
-            new Seed("꽃·식물", "💐", "pink", 20),
-            new Seed("부조금", "💌", "blue", 30),
-            new Seed("패션·잡화", "👜", "gold", 40),
-            new Seed("상품권", "🎫", "mint", 50),
-            new Seed("생활용품", "🕯️", "pink", 60),
-            new Seed(FALLBACK_CATEGORY_NAME, "🎁", "blue", 70)
+            // ── 선물 탭
+            new Seed("디저트", "🍰", "mint", 10, GiftKind.GIFT),
+            new Seed("꽃·식물", "💐", "pink", 20, GiftKind.GIFT),
+            new Seed("패션·잡화", "👜", "gold", 30, GiftKind.GIFT),
+            new Seed("상품권", "🎫", "mint", 40, GiftKind.GIFT),
+            new Seed("생활용품", "🕯️", "pink", 50, GiftKind.GIFT),
+            new Seed(FALLBACK_CATEGORY_NAME, "🎁", "blue", 60, GiftKind.GIFT)
+            // 경조사 탭은 기본값을 두지 않는다. "내 결혼식"처럼 사용자의 실제 이벤트가 들어갈 자리라
+            // 빈 껍데기 "결혼식"을 미리 만들어두면 오히려 헷갈린다. 화면에서 "+ 새 경조사"로 만든다.
     );
+
+    private static final long[] EMPTY_AGG = {0L, 0L};
 
     private final CategoryRepository categoryRepository;
     private final GiftRecordRepository giftRecordRepository;
@@ -65,26 +76,47 @@ public class CategoryService {
     public void provisionDefaults(User user) {
         List<Category> missing = DEFAULTS.stream()
                 .filter(seed -> !categoryRepository.existsByUser_UsernameAndName(user.getUsername(), seed.name()))
-                .map(seed -> new Category(user, seed.name(), seed.emoji(), seed.color(), seed.displayOrder(), true))
+                .map(seed -> new Category(user, seed.name(), seed.emoji(), seed.color(), seed.displayOrder(), true,
+                        seed.kind()))
                 .toList();
         if (!missing.isEmpty()) {
             categoryRepository.saveAll(missing);
         }
     }
 
+    /**
+     * 카테고리 목록. {@code kind}로 탭을 고르면 그 탭의 카테고리만 나온다
+     * (EVENT/경조사 → 경사+조사, GIFT/선물 → 선물, 생략 → 전체).
+     */
     @Transactional(readOnly = true)
-    public List<CategoryResponse> list(boolean includeInactive) {
+    public List<CategoryResponse> list(boolean includeInactive, String kind) {
         String username = SecurityUtils.getCurrentUsername();
-        Map<Long, Long> counts = new HashMap<>();
-        giftRecordRepository.countGroupedByCategory(username)
-                .forEach(row -> counts.put((Long) row[0], (Long) row[1]));
+        List<GiftKind> kinds = GiftKind.parseFilter(kind);
+        Map<Long, long[]> counts = new HashMap<>();   // categoryId → [건수, 금액합]
+        Map<Long, LocalDate> latest = new HashMap<>();
+        giftRecordRepository.aggregateByCategory(username).forEach(row -> {
+            Long cid = (Long) row[0];
+            counts.put(cid, new long[]{(Long) row[1], ((Number) row[2]).longValue()});
+            latest.put(cid, (LocalDate) row[3]);
+        });
 
         List<Category> categories = includeInactive
-                ? categoryRepository.findByUser_UsernameOrderByDisplayOrderAscIdAsc(username)
-                : categoryRepository.findByUser_UsernameAndActiveTrueOrderByDisplayOrderAscIdAsc(username);
+                ? categoryRepository.findByUser_UsernameAndKindInOrderByDisplayOrderAscIdAsc(username, kinds)
+                : categoryRepository.findByUser_UsernameAndKindInAndActiveTrueOrderByDisplayOrderAscIdAsc(username, kinds);
 
         return categories.stream()
-                .map(c -> CategoryResponse.from(c, counts.getOrDefault(c.getId(), 0L)))
+                .map(c -> {
+                    long[] agg = counts.getOrDefault(c.getId(), EMPTY_AGG);
+                    return CategoryResponse.from(c, agg[0], agg[1], latest.get(c.getId()));
+                })
+                // 선물은 지정한 순서대로, 경조사는 최근 이벤트가 위로 오게 한다.
+                // (경조사는 시간이 지날수록 쌓이므로 최신순이 아니면 오래된 게 계속 위에 남는다)
+                .sorted(Comparator
+                        .comparing(CategoryResponse::event)
+                        .thenComparing(r -> r.event() ? null : r.displayOrder(),
+                                Comparator.nullsFirst(Comparator.naturalOrder()))
+                        .thenComparing(CategoryResponse::latestDate,
+                                Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
     }
 
@@ -104,7 +136,8 @@ public class CategoryService {
                 blankToDefault(request.emoji(), DEFAULT_EMOJI),
                 blankToDefault(request.color(), DEFAULT_COLOR),
                 order,
-                request.active() == null || request.active()
+                request.active() == null || request.active(),
+                GiftKind.parseOrDefault(request.kind())
         );
         categoryRepository.save(category);
         return CategoryResponse.from(category, 0L);
@@ -120,7 +153,8 @@ public class CategoryService {
                 && categoryRepository.existsByUser_UsernameAndName(username, name)) {
             throw new CustomException(ErrorCode.DUPLICATE_CATEGORY);
         }
-        category.update(name, request.emoji(), request.color(), request.displayOrder(), request.active());
+        category.update(name, request.emoji(), request.color(), request.displayOrder(), request.active(),
+                request.kind() == null ? null : GiftKind.parseOrDefault(request.kind()));
 
         long count = giftRecordRepository.countByUser_UsernameAndCategory_Id(username, category.getId());
         return CategoryResponse.from(category, count);

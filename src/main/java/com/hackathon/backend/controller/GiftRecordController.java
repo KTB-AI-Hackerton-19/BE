@@ -49,18 +49,25 @@ public class GiftRecordController {
             @Parameter(description = "특정 사람이 준 것만 보기", example = "3") @RequestParam(required = false) Long personId,
             @Parameter(description = "감사 완료 여부 필터 (true: 감사 완료만, false: 확인 필요만)") @RequestParam(required = false) Boolean thanked,
             @Parameter(description = "상태 필터. 생략하면 DRAFT/CONFIRMED 모두 조회") @RequestParam(required = false) GiftRecordStatus status,
+            @Parameter(description = "분류 필터. EVENT(경조사 전체) / GIFT(선물) / CELEBRATION(경사) / CONDOLENCE(조사). "
+                    + "한글(경조사·선물·경사·조사)도 허용. 생략하면 전체", example = "EVENT")
+            @RequestParam(required = false) String kind,
             @Parameter(description = "받은 날짜 시작 (이 날짜 포함)", example = "2026-08-01")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @Parameter(description = "받은 날짜 끝 (이 날짜 포함)", example = "2026-08-31")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @Parameter(description = "검색어 — 선물명/받은 이유/보낸 사람 이름을 부분 일치로 찾는다", example = "케이크")
             @RequestParam(required = false) String q,
+            @Parameter(description = "보낸 사람 이름으로만 좁히기. 통합 검색(q)과 달리 선물명·이유는 보지 않는다. "
+                    + "경조사 이벤트처럼 한 목록에 수십 명이 있을 때 특정 사람을 찾는 용도", example = "김민수")
+            @RequestParam(required = false) String personName,
             @Parameter(description = "정렬. latest(받은 날짜 최신순, 기본) / oldest / amount(금액 큰 순) / created(등록 최신순)",
                     example = "latest") @RequestParam(required = false, defaultValue = "latest") String sort,
             @Parameter(description = "페이지 번호 (0부터)", example = "0") @RequestParam(required = false, defaultValue = "0") int page,
             @Parameter(description = "페이지 크기 (최대 100)", example = "20") @RequestParam(required = false, defaultValue = "20") int size) {
         return ApiResponse.success(giftRecordService.search(
-                categoryId, category, personId, thanked, status, startDate, endDate, q, sort, page, size));
+                categoryId, category, personId, thanked, status, kind, startDate, endDate, q, personName,
+                sort, page, size));
     }
 
     @Operation(

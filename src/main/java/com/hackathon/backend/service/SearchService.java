@@ -32,7 +32,7 @@ public class SearchService {
 
         List<PersonResponse> people = personService.list(q).stream().limit(size).toList();
         PageResponse<GiftRecordResponse> records = giftRecordService.search(
-                null, null, null, null, null, null, null, q, "latest", 0, size);
+                null, null, null, null, null, null, null, null, q, null, "latest", 0, size);
 
         return new SearchResponse(q.trim(), people, records.content());
     }

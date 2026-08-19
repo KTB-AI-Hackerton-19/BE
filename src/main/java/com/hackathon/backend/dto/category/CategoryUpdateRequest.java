@@ -19,5 +19,9 @@ public record CategoryUpdateRequest(
         @Schema(description = "바꿀 정렬 순서. 생략하면 그대로", example = "80") Integer displayOrder,
 
         @Schema(description = "노출 여부. false면 목록에서 숨겨지며 기존 기록은 그대로 유지된다", example = "true") Boolean active
-) {
+,
+
+        @Schema(description = "탭 변경 — GIFT / CELEBRATION / CONDOLENCE (한글도 허용). 생략하면 그대로",
+                example = "CELEBRATION")
+        String kind) {
 }

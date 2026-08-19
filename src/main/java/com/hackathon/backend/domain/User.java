@@ -30,6 +30,10 @@ public class User {
     @Column(nullable = false)
     private String name;
 
+    /** 프로필 이미지의 S3 key. 가입 시에는 받지 않고, 프로필 수정에서만 설정한다. 없으면 null. */
+    @Column
+    private String profileImageKey;
+
     @Column
     private String refreshToken;
 
@@ -37,6 +41,21 @@ public class User {
         this.username = username;
         this.password = password;
         this.name = name;
+    }
+
+    /** 프로필 수정. null로 들어온 필드는 기존 값을 유지한다(부분 수정 PATCH 시맨틱). */
+    public void updateProfile(String name, String profileImageKey) {
+        if (name != null && !name.isBlank()) {
+            this.name = name.trim();
+        }
+        if (profileImageKey != null && !profileImageKey.isBlank()) {
+            this.profileImageKey = profileImageKey.trim();
+        }
+    }
+
+    /** 프로필 이미지 제거(기본 아바타로 되돌리기). */
+    public void clearProfileImage() {
+        this.profileImageKey = null;
     }
 
     public void updateRefreshToken(String refreshToken) {

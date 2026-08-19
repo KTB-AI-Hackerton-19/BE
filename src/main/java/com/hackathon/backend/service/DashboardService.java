@@ -56,7 +56,7 @@ public class DashboardService {
 
         int recent = (recentLimit == null || recentLimit <= 0) ? DEFAULT_RECENT_LIMIT : Math.min(recentLimit, 20);
         PageResponse<GiftRecordResponse> recentRecords =
-                giftRecordService.search(null, null, null, null, null, null, null, null, "latest", 0, recent);
+                giftRecordService.search(null, null, null, null, null, null, null, null, null, null, "latest", 0, recent);
 
         int recommendCount = (recommendationLimit == null || recommendationLimit <= 0)
                 ? DEFAULT_RECOMMENDATION_LIMIT : Math.min(recommendationLimit, 10);

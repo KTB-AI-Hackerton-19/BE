@@ -2,6 +2,7 @@ package com.hackathon.backend.dto.gift;
 
 import com.hackathon.backend.domain.Category;
 import com.hackathon.backend.domain.GiftRecord;
+import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.domain.Person;
 import com.hackathon.backend.support.MoneyFormatter;
@@ -38,6 +39,10 @@ public record GiftRecordResponse(
         @Schema(description = "AI가 추측한 관계 (확정 전 확인 폼 프리필용)", example = "친한 친구") String extractedRelationship,
         @Schema(description = "원본 이미지 조회용 presigned GET URL (매 응답마다 새로 발급, 15분 만료)") String imageUrl,
 
+        @Schema(description = "분류 — 카테고리가 속한 탭에서 파생. GIFT(선물) / CELEBRATION(경사) / CONDOLENCE(조사)") GiftKind kind,
+        @Schema(description = "분류 한글 라벨. 화면에 그대로 출력하면 된다", example = "경사") String kindLabel,
+        @Schema(description = "경조사 여부(경사 또는 조사). 큰 틀 필터에 쓰면 된다", example = "true") boolean event,
+
         @Schema(description = "DRAFT(AI 추출 직후, 사용자 확인 전) 또는 CONFIRMED(사용자 확정 완료)") GiftRecordStatus status,
         @Schema(description = "기록 생성 시각") LocalDateTime createdAt
 ) {
@@ -66,6 +71,9 @@ public record GiftRecordResponse(
                 record.getExtractedSenderName(),
                 record.getExtractedRelationship(),
                 imageUrl,
+                category != null ? category.getKind() : null,
+                category != null && category.getKind() != null ? category.getKind().getLabel() : null,
+                category != null && category.getKind() != null && category.getKind().isEvent(),
                 record.getStatus(),
                 record.getCreatedAt()
         );

@@ -15,5 +15,9 @@ public record CategoryRequest(
         @Schema(description = "정렬 순서 (작을수록 앞). 생략하면 맨 뒤", example = "80") Integer displayOrder,
 
         @Schema(description = "노출 여부. 생략하면 true", example = "true") Boolean active
-) {
+,
+
+        @Schema(description = "속할 탭 — GIFT(선물, 기본) / CELEBRATION(경사) / CONDOLENCE(조사). "
+                + "한글(선물·경사·조사)도 허용", example = "CELEBRATION")
+        String kind) {
 }

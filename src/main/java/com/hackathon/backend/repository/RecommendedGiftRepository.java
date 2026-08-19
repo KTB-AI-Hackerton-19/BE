@@ -18,4 +18,7 @@ public interface RecommendedGiftRepository extends JpaRepository<RecommendedGift
     void deleteByUser_UsernameAndPerson_IdIn(String username, List<Long> personIds);
 
     void deleteByUser_UsernameAndPersonIsNull(String username);
+
+    /** 회원탈퇴 시 그 사용자의 추천을 전부 지운다. */
+    void deleteByUser_Username(String username);
 }

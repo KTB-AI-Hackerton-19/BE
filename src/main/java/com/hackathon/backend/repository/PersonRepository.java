@@ -18,4 +18,6 @@ public interface PersonRepository extends JpaRepository<Person, Long> {
     Optional<Person> findByUser_UsernameAndName(String username, String name);
 
     long countByUser_Username(String username);
+
+    void deleteByUser_Username(String username);
 }

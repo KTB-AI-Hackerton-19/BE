@@ -1,5 +1,6 @@
 package com.hackathon.backend.dto.person;
 
+import com.hackathon.backend.domain.Gender;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -11,6 +12,7 @@ public record PersonResponse(
         @Schema(description = "사람 ID", example = "3") Long id,
         @Schema(description = "이름", example = "김민수") String name,
         @Schema(description = "관계", example = "친한 친구") String relation,
+        @Schema(description = "성별 (미입력이면 null)", example = "남성") Gender gender,
         @Schema(description = "생일", example = "1998-05-10") LocalDate birthday,
         @Schema(description = "메모 (취향/기피 품목 등)", example = "커피를 좋아함") String memo,
         @Schema(description = "이 사람에게 받은 마음 개수 — '마음 N개'", example = "2") long giftCount,
@@ -23,6 +25,7 @@ public record PersonResponse(
                 person.getId(),
                 person.getName(),
                 person.getRelationship(),
+                person.getGender(),
                 person.getBirthday(),
                 person.getMemo(),
                 giftCount,

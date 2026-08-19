@@ -47,8 +47,8 @@ public class PersonService {
         User user = getCurrentUser();
         Person person = personRepository.findByUser_UsernameAndName(user.getUsername(), request.name().trim())
                 .orElseGet(() -> personRepository.save(
-                        new Person(user, request.name().trim(), request.relation(), request.birthday(), request.memo())));
-        person.update(null, request.relation(), request.birthday(), request.memo());
+                        new Person(user, request.name().trim(), request.relation(), request.gender(), request.birthday(), request.memo())));
+        person.update(null, request.relation(), request.gender(), request.birthday(), request.memo());
         return PersonResponse.of(person, 0L, null, null);
     }
 
@@ -57,7 +57,7 @@ public class PersonService {
         String username = SecurityUtils.getCurrentUsername();
         Person person = personRepository.findByIdAndUser_Username(id, username)
                 .orElseThrow(() -> new CustomException(ErrorCode.PERSON_NOT_FOUND));
-        person.update(request.name(), request.relation(), request.birthday(), request.memo());
+        person.update(request.name(), request.relation(), request.gender(), request.birthday(), request.memo());
         return buildSummary(username, person);
     }
 
@@ -193,7 +193,7 @@ public class PersonService {
             Person person = personRepository.findByIdAndUser_Username(personId, user.getUsername())
                     .orElseThrow(() -> new CustomException(ErrorCode.PERSON_NOT_FOUND));
             if (relation != null && !relation.isBlank()) {
-                person.update(null, relation, null, null);
+                person.update(null, relation, null, null, null);
             }
             return person;
         }
@@ -202,9 +202,9 @@ public class PersonService {
         }
         String name = personName.trim();
         Person person = personRepository.findByUser_UsernameAndName(user.getUsername(), name)
-                .orElseGet(() -> personRepository.save(new Person(user, name, relation, null, null)));
+                .orElseGet(() -> personRepository.save(new Person(user, name, relation, null, null, null)));
         if (relation != null && !relation.isBlank()) {
-            person.update(null, relation, null, null);
+            person.update(null, relation, null, null, null);
         }
         return person;
     }

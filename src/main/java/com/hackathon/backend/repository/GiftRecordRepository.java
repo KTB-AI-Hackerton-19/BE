@@ -1,5 +1,6 @@
 package com.hackathon.backend.repository;
 
+import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import java.time.LocalDate;
@@ -27,8 +28,10 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
               and (:categoryId is null or r.category.id = :categoryId)
               and (:personId is null or r.person.id = :personId)
               and (:thanked is null or r.thanked = :thanked)
+              and (:allKinds = true or r.category.kind in :kinds)
               and (:startDate is null or r.receivedDate >= :startDate)
               and (:endDate is null or r.receivedDate <= :endDate)
+              and (:personName is null or lower(r.person.name) like lower(concat('%', :personName, '%')))
               and (:keyword is null
                    or lower(r.giftName) like lower(concat('%', :keyword, '%'))
                    or lower(r.occasion) like lower(concat('%', :keyword, '%'))
@@ -39,8 +42,11 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
                             @Param("categoryId") Long categoryId,
                             @Param("personId") Long personId,
                             @Param("thanked") Boolean thanked,
+                            @Param("allKinds") boolean allKinds,
+                            @Param("kinds") List<GiftKind> kinds,
                             @Param("startDate") LocalDate startDate,
                             @Param("endDate") LocalDate endDate,
+                            @Param("personName") String personName,
                             @Param("keyword") String keyword,
                             Pageable pageable);
 
@@ -85,4 +91,21 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
             group by r.category.id
             """)
     List<Object[]> countGroupedByCategory(@Param("username") String username);
+
+    /**
+     * 카테고리별 집계 — [categoryId, 건수, 금액합, 가장 최근 받은 날짜].
+     *
+     * <p>경조사 탭에서 "내 결혼식 · 32명 · 1,240,000원" 카드를 그리는 데 쓴다.
+     * 최근 날짜는 이벤트 카드 정렬(최신 이벤트가 위)에도 쓰인다.</p>
+     */
+    @Query("""
+            select r.category.id, count(r), coalesce(sum(r.amount), 0), max(r.receivedDate)
+            from GiftRecord r
+            where r.user.username = :username and r.category is not null
+            group by r.category.id
+            """)
+    List<Object[]> aggregateByCategory(@Param("username") String username);
+
+    /** 회원탈퇴 시 그 사용자의 기록을 전부 지운다. */
+    void deleteByUser_Username(String username);
 }

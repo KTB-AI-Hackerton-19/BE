@@ -46,4 +46,7 @@ public interface ReminderTaskRepository extends JpaRepository<ReminderTask, Long
     @EntityGraph(attributePaths = {"person", "giftRecord", "giftRecord.category"})
     List<ReminderTask> findByUser_UsernameAndStatusAndScheduledAtLessThanEqual(
             String username, ReminderStatus status, LocalDate date);
+
+    /** 회원탈퇴 시 그 사용자의 답례 알림을 전부 지운다. */
+    void deleteByUser_Username(String username);
 }
