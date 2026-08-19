@@ -26,12 +26,17 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    /** 화면에 표시할 이름. 로그인에는 쓰지 않는다(로그인은 username). */
+    @Column(nullable = false)
+    private String name;
+
     @Column
     private String refreshToken;
 
-    public User(String username, String password) {
+    public User(String username, String password, String name) {
         this.username = username;
         this.password = password;
+        this.name = name;
     }
 
     public void updateRefreshToken(String refreshToken) {
