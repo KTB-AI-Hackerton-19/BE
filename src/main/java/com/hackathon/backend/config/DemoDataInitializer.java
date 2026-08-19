@@ -10,6 +10,7 @@ import com.hackathon.backend.repository.GiftRecordRepository;
 import com.hackathon.backend.repository.PersonRepository;
 import com.hackathon.backend.repository.ReminderTaskRepository;
 import com.hackathon.backend.repository.UserRepository;
+import com.hackathon.backend.service.CategoryService;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -35,15 +36,34 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * <p>날짜는 전부 <b>오늘 기준 상대값</b>으로 만든다. 고정 날짜로 박아두면 며칠만 지나도 "다가오는 일정"이
  * 전부 과거가 되어 홈 화면 에이전트 카드와 캘린더가 비어버린다.</p>
  *
- * <p>카테고리 마스터가 먼저 들어와야 하므로 {@link CategoryInitializer} 다음에 실행한다.</p>
+ * <p>카테고리는 사용자별이라, 계정을 만든 직후 기본 7종을 그 사용자 것으로 깔고 나서 기록을 만든다.</p>
  */
 @Configuration
 public class DemoDataInitializer {
 
     private static final Logger log = LoggerFactory.getLogger(DemoDataInitializer.class);
 
-    /** 프론트가 자동 로그인에 쓰는 계정과 수동 테스트용 계정. 둘 다 같은 목데이터를 갖는다. */
-    private static final Map<String, String> DEMO_USERS = Map.of("demo", "데모유저", "test", "테스트유저");
+    /**
+     * 데모 계정. <b>비밀번호는 전부 "아이디 + 1234"</b> (예: demo → demo1234).
+     * 계정마다 사람·기록·알림·카테고리를 각자 갖기 때문에 여러 명이 동시에 시연해도 서로 간섭하지 않는다.
+     * 프론트 자동 로그인은 demo를 쓰므로 그 계정은 지우지 말 것.
+     */
+    private record DemoUser(String username, String name) {
+    }
+
+    private static final List<DemoUser> DEMO_USERS = List.of(
+            new DemoUser("demo", "데모유저"),      // 프론트 자동 로그인 계정
+            new DemoUser("test", "테스트유저"),    // 막 테스트해도 되는 계정
+            new DemoUser("hana", "김하늘"),
+            new DemoUser("junho", "이준호"),
+            new DemoUser("seoyeon", "박서연"),
+            new DemoUser("minjae", "최민재"),
+            new DemoUser("yeeun", "정예은"),
+            new DemoUser("doyun", "한도윤"),
+            new DemoUser("sujin", "오수진"),
+            new DemoUser("taeho", "강태호")
+    );
+
     private static final String DEMO_PASSWORD_SUFFIX = "1234";
 
     /** 사람: 이름, 관계, 생일(오늘로부터 +N일, 없으면 null), 메모 */
@@ -85,38 +105,36 @@ public class DemoDataInitializer {
     );
 
     @Bean
-    @Order(2) // CategoryInitializer(@Order(1)) 이후에 실행되어야 카테고리를 찾을 수 있다.
     public ApplicationRunner demoDataSeedRunner(UserRepository userRepository,
                                                 PersonRepository personRepository,
                                                 GiftRecordRepository giftRecordRepository,
                                                 ReminderTaskRepository reminderTaskRepository,
                                                 CategoryRepository categoryRepository,
+                                                CategoryService categoryService,
                                                 PasswordEncoder passwordEncoder) {
-        return args -> {
-            Map<String, Category> categories = new LinkedHashMap<>();
-            categoryRepository.findAll().forEach(c -> categories.put(c.getName(), c));
-            if (categories.isEmpty()) {
-                log.warn("카테고리가 없어 데모 데이터를 건너뜁니다.");
-                return;
+        return args -> DEMO_USERS.forEach(demo -> {
+            if (userRepository.existsByUsername(demo.username())) {
+                return; // 이미 있으면 손대지 않는다(실DB 전환 시 자동 비활성화).
             }
-
-            DEMO_USERS.forEach((username, name) -> {
-                if (userRepository.existsByUsername(username)) {
-                    return; // 이미 있으면 손대지 않는다(실DB 전환 시 자동 비활성화).
-                }
-                seedFor(username, name, userRepository, personRepository, giftRecordRepository,
-                        reminderTaskRepository, categories, passwordEncoder);
-            });
-        };
+            seedFor(demo.username(), demo.name(), userRepository, personRepository, giftRecordRepository,
+                    reminderTaskRepository, categoryRepository, categoryService, passwordEncoder);
+        });
     }
 
     private void seedFor(String username, String name, UserRepository userRepository, PersonRepository personRepository,
                          GiftRecordRepository giftRecordRepository, ReminderTaskRepository reminderTaskRepository,
-                         Map<String, Category> categories, PasswordEncoder passwordEncoder) {
+                         CategoryRepository categoryRepository, CategoryService categoryService,
+                         PasswordEncoder passwordEncoder) {
         LocalDate today = LocalDate.now();
 
         User user = userRepository.save(
                 new User(username, passwordEncoder.encode(username + DEMO_PASSWORD_SUFFIX), name));
+
+        // 카테고리는 사용자별이므로 이 계정 것으로 먼저 깔아둔다.
+        categoryService.provisionDefaults(user);
+        Map<String, Category> categories = new LinkedHashMap<>();
+        categoryRepository.findByUser_UsernameOrderByDisplayOrderAscIdAsc(username)
+                .forEach(c -> categories.put(c.getName(), c));
 
         Map<String, Person> people = new LinkedHashMap<>();
         for (PersonSeed seed : PEOPLE) {
@@ -142,7 +160,7 @@ public class DemoDataInitializer {
         }
         reminderTaskRepository.saveAll(reminders);
 
-        log.info("데모 데이터 생성 — 계정 '{}' / 비밀번호 '{}{}' / 이름 '{}' : 사람 {}명, 기록 {}건, 답례 알림 {}건",
+        log.info("데모 계정 '{}' (비밀번호 '{}{}', 이름 '{}') — 카테고리 7 / 사람 {} / 기록 {} / 알림 {}",
                 username, username, DEMO_PASSWORD_SUFFIX, name, PEOPLE.size(), RECORDS.size(), reminders.size());
     }
 }

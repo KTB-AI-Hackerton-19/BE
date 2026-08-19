@@ -7,11 +7,13 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CategoryRepository extends JpaRepository<Category, Long> {
 
-    List<Category> findAllByOrderByDisplayOrderAscIdAsc();
+    List<Category> findByUser_UsernameOrderByDisplayOrderAscIdAsc(String username);
 
-    List<Category> findByActiveTrueOrderByDisplayOrderAscIdAsc();
+    List<Category> findByUser_UsernameAndActiveTrueOrderByDisplayOrderAscIdAsc(String username);
 
-    Optional<Category> findByName(String name);
+    Optional<Category> findByUser_UsernameAndName(String username, String name);
 
-    boolean existsByName(String name);
+    Optional<Category> findByIdAndUser_Username(Long id, String username);
+
+    boolean existsByUser_UsernameAndName(String username, String name);
 }

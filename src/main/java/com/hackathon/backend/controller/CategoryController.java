@@ -2,6 +2,7 @@ package com.hackathon.backend.controller;
 
 import com.hackathon.backend.dto.ApiResponse;
 import com.hackathon.backend.dto.category.CategoryRequest;
+import com.hackathon.backend.dto.category.CategoryUpdateRequest;
 import com.hackathon.backend.dto.category.CategoryResponse;
 import com.hackathon.backend.service.CategoryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -10,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -60,7 +62,19 @@ public class CategoryController {
     @PatchMapping("/{id}")
     public ApiResponse<CategoryResponse> update(
             @Parameter(description = "수정할 카테고리 ID") @PathVariable Long id,
-            @Valid @RequestBody CategoryRequest request) {
+            @Valid @RequestBody CategoryUpdateRequest request) {
         return ApiResponse.success(categoryService.update(id, request));
+    }
+
+    @Operation(
+            summary = "카테고리 삭제",
+            description = "내 카테고리만 삭제된다. 그 카테고리로 저장된 마음 기록은 지워지지 않고 '기타'로 옮겨지며, "
+                    + "옮겨진 건수를 응답으로 돌려준다. '기타' 자체는 폴백 대상이라 삭제할 수 없다. "
+                    + "잠시 목록에서만 숨기고 싶다면 PATCH로 active:false를 주면 된다."
+    )
+    @DeleteMapping("/{id}")
+    public ApiResponse<Integer> delete(
+            @Parameter(description = "삭제할 카테고리 ID") @PathVariable Long id) {
+        return ApiResponse.success(categoryService.delete(id));
     }
 }

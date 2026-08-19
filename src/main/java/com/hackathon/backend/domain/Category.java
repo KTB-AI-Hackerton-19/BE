@@ -2,10 +2,14 @@ package com.hackathon.backend.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -16,9 +20,13 @@ import lombok.NoArgsConstructor;
  * <p>카테고리를 하나 추가할 때 코드 수정/재컴파일/재배포가 필요 없도록 enum이 아닌 테이블로 뺐다.
  * 카테고리 추가 = row 1건 INSERT (또는 {@code POST /api/categories} 호출).
  * emoji/color도 여기 같이 두어 이모지·색상 매핑이 코드에 흩어지지 않게 했다.</p>
+ *
+ * <p><b>카테고리는 사용자별로 따로 갖는다.</b> 가입할 때 기본 7종이 그 사용자 것으로 복제되며,
+ * 이후 추가·수정·숨김은 그 사용자에게만 영향을 준다. 이름 중복 검사도 사용자 안에서만 한다.</p>
  */
 @Entity
-@Table(name = "categories")
+@Table(name = "categories",
+        uniqueConstraints = @UniqueConstraint(name = "uk_category_user_name", columnNames = {"user_id", "name"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Category {
@@ -27,8 +35,12 @@ public class Category {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** 화면에 그대로 노출되는 이름 (예: "디저트"). 중복 불가 */
-    @Column(nullable = false, unique = true, length = 50)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    /** 화면에 그대로 노출되는 이름 (예: "디저트"). 같은 사용자 안에서 중복 불가 */
+    @Column(nullable = false, length = 50)
     private String name;
 
     /** 기록 카드 좌측에 표시되는 기본 이모지 (예: "🍰") */
@@ -47,7 +59,8 @@ public class Category {
     @Column(nullable = false)
     private boolean active;
 
-    public Category(String name, String emoji, String color, Integer displayOrder, boolean active) {
+    public Category(User user, String name, String emoji, String color, Integer displayOrder, boolean active) {
+        this.user = user;
         this.name = name;
         this.emoji = emoji;
         this.color = color;

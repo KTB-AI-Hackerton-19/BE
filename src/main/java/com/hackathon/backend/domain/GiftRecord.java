@@ -170,6 +170,11 @@ public class GiftRecord {
         this.status = GiftRecordStatus.CONFIRMED;
     }
 
+    /** 카테고리가 삭제될 때 남은 기록을 다른 카테고리("기타")로 옮긴다. */
+    public void changeCategory(Category category) {
+        this.category = category;
+    }
+
     public void updateThanked(boolean thanked) {
         this.thanked = thanked;
     }

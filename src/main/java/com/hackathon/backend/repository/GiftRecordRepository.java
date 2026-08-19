@@ -65,6 +65,9 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
 
     long countByUser_UsernameAndCategory_Id(String username, Long categoryId);
 
+    /** 카테고리를 삭제할 때 그 카테고리로 저장된 기록을 "기타"로 옮기기 위해 조회한다. */
+    List<GiftRecord> findByUser_UsernameAndCategory_Id(String username, Long categoryId);
+
     /** 사람별 기록 개수 — [personId, count] 형태로 한 번에 집계 (사람 목록 N+1 방지) */
     @Query("""
             select r.person.id, count(r)

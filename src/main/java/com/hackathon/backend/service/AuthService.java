@@ -20,11 +20,14 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final CategoryService categoryService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtProvider jwtProvider) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtProvider jwtProvider,
+                       CategoryService categoryService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
+        this.categoryService = categoryService;
     }
 
     @Transactional
@@ -34,6 +37,8 @@ public class AuthService {
         }
         User user = new User(request.username(), passwordEncoder.encode(request.password()), request.name().trim());
         userRepository.save(user);
+        // 카테고리는 사용자별이라, 가입하는 순간 기본 7종을 그 사용자 것으로 깔아준다.
+        categoryService.provisionDefaults(user);
     }
 
     @Transactional
