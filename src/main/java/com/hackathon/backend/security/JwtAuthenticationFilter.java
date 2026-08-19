@@ -9,6 +9,7 @@ import org.jspecify.annotations.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.web.cors.CorsUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
@@ -43,10 +44,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith(TOKEN_PREFIX)) {
             return header.substring(TOKEN_PREFIX.length());
         }
-        // SSE는 EventSource로 연결하는데 이 API가 헤더를 못 붙인다. 스트림 경로에 한해 쿼리 토큰을 허용한다.
+
         if (request.getRequestURI().endsWith("/stream")) {
             return request.getParameter("token");
         }
         return null;
+    }
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return CorsUtils.isPreFlightRequest(request);
     }
 }
