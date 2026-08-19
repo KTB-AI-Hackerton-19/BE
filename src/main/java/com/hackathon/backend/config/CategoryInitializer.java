@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 
 /**
  * 기본 카테고리 시드.
@@ -39,6 +40,7 @@ public class CategoryInitializer {
     );
 
     @Bean
+    @Order(1) // 다른 시드(DemoDataInitializer)가 카테고리를 참조하므로 가장 먼저 실행한다.
     public ApplicationRunner categorySeedRunner(CategoryRepository categoryRepository) {
         return args -> {
             List<Category> missing = DEFAULTS.stream()
