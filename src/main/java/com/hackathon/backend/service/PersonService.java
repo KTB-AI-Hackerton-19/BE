@@ -3,12 +3,15 @@ package com.hackathon.backend.service;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
 import com.hackathon.backend.domain.User;
+import com.hackathon.backend.dto.person.PersonDeleteResponse;
 import com.hackathon.backend.dto.person.PersonRequest;
 import com.hackathon.backend.dto.person.PersonResponse;
 import com.hackathon.backend.exception.CustomException;
 import com.hackathon.backend.exception.ErrorCode;
 import com.hackathon.backend.repository.GiftRecordRepository;
 import com.hackathon.backend.repository.PersonRepository;
+import com.hackathon.backend.repository.RecommendedGiftRepository;
+import com.hackathon.backend.repository.ReminderTaskRepository;
 import com.hackathon.backend.repository.UserRepository;
 import com.hackathon.backend.security.SecurityUtils;
 import java.time.LocalDate;
@@ -25,12 +28,18 @@ public class PersonService {
     private final PersonRepository personRepository;
     private final UserRepository userRepository;
     private final GiftRecordRepository giftRecordRepository;
+    private final ReminderTaskRepository reminderTaskRepository;
+    private final RecommendedGiftRepository recommendedGiftRepository;
 
     public PersonService(PersonRepository personRepository, UserRepository userRepository,
-                         GiftRecordRepository giftRecordRepository) {
+                         GiftRecordRepository giftRecordRepository,
+                         ReminderTaskRepository reminderTaskRepository,
+                         RecommendedGiftRepository recommendedGiftRepository) {
         this.personRepository = personRepository;
         this.userRepository = userRepository;
         this.giftRecordRepository = giftRecordRepository;
+        this.reminderTaskRepository = reminderTaskRepository;
+        this.recommendedGiftRepository = recommendedGiftRepository;
     }
 
     @Transactional
@@ -97,17 +106,58 @@ public class PersonService {
         return buildSummary(username, person);
     }
 
+    /** 사람 한 명 삭제. 그 사람의 기록·알림·추천이 함께 사라진다. 없는 id면 404. */
     @Transactional
-    public void delete(Long id) {
+    public PersonDeleteResponse delete(Long id) {
         String username = SecurityUtils.getCurrentUsername();
         Person person = personRepository.findByIdAndUser_Username(id, username)
                 .orElseThrow(() -> new CustomException(ErrorCode.PERSON_NOT_FOUND));
-        long records = giftRecordRepository.findByUser_UsernameAndPerson_IdOrderByReceivedDateDescIdDesc(username, id).size();
-        if (records > 0) {
-            throw new CustomException(ErrorCode.INVALID_INPUT,
-                    "이 사람에게 받은 마음 기록이 %d건 남아 있어 삭제할 수 없습니다. 기록을 먼저 정리해주세요.".formatted(records));
+        return deletePeople(username, List.of(person));
+    }
+
+    /**
+     * 사람 여러 명 삭제(목록에서 체크해 한 번에 지우는 용도).
+     *
+     * <p>없는 id나 다른 사용자의 사람은 <b>조용히 건너뛴다.</b> 10명을 골랐는데 그중 하나가 이미 지워졌다고
+     * 전체를 실패시키면 사용자가 다시 고르는 수밖에 없어서, 지울 수 있는 것만 지우고 실제 건수를 돌려준다.</p>
+     */
+    @Transactional
+    public PersonDeleteResponse deleteAll(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new CustomException(ErrorCode.INVALID_INPUT, "삭제할 사람의 id를 하나 이상 보내주세요.");
         }
-        personRepository.delete(person);
+        String username = SecurityUtils.getCurrentUsername();
+        return deletePeople(username, personRepository.findByIdInAndUser_Username(ids, username));
+    }
+
+    /**
+     * 삭제 순서가 중요하다. 사람을 참조하는 쪽(추천·알림·기록)을 먼저 비워야 FK 제약에 걸리지 않는다.
+     * 기록을 남겨두면 "보낸 사람이 사라진 기록"이 되어 목록·타임라인·통계가 전부 깨지므로 함께 지운다.
+     */
+    private PersonDeleteResponse deletePeople(String username, List<Person> people) {
+        if (people.isEmpty()) {
+            return PersonDeleteResponse.empty();
+        }
+        List<Long> personIds = people.stream().map(Person::getId).toList();
+        List<GiftRecord> records = giftRecordRepository.findByUser_UsernameAndPerson_IdIn(username, personIds);
+
+        // 1) 선물 추천 (person_id 참조)
+        recommendedGiftRepository.deleteByUser_UsernameAndPerson_IdIn(username, personIds);
+
+        // 2) 답례 알림 — 기록에 딸린 것을 먼저 지우고, 사람만 참조하는 잔여분을 정리한다.
+        long reminders = 0;
+        if (!records.isEmpty()) {
+            reminders += reminderTaskRepository.deleteByGiftRecord_IdIn(records.stream().map(GiftRecord::getId).toList());
+        }
+        reminders += reminderTaskRepository.deleteByPerson_IdIn(personIds);
+
+        // 3) 마음 기록
+        giftRecordRepository.deleteAll(records);
+
+        // 4) 사람
+        personRepository.deleteAll(people);
+
+        return new PersonDeleteResponse(people.size(), records.size(), (int) reminders);
     }
 
     /**

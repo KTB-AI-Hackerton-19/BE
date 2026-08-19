@@ -15,5 +15,7 @@ public interface RecommendedGiftRepository extends JpaRepository<RecommendedGift
 
     void deleteByUser_UsernameAndPerson_Id(String username, Long personId);
 
+    void deleteByUser_UsernameAndPerson_IdIn(String username, List<Long> personIds);
+
     void deleteByUser_UsernameAndPersonIsNull(String username);
 }

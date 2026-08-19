@@ -27,6 +27,10 @@ public interface ReminderTaskRepository extends JpaRepository<ReminderTask, Long
 
     void deleteByGiftRecord_Id(Long giftRecordId);
 
+    long deleteByGiftRecord_IdIn(List<Long> giftRecordIds);
+
+    long deleteByPerson_IdIn(List<Long> personIds);
+
     long countByUser_UsernameAndScheduledAtGreaterThanEqual(String username, LocalDate from);
 
     Page<ReminderTask> findByStatusAndScheduledAtLessThanEqual(ReminderStatus status, LocalDate date, Pageable pageable);

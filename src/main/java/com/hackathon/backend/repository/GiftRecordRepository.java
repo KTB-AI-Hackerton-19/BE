@@ -47,6 +47,8 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
     @EntityGraph(attributePaths = {"person", "category"})
     Optional<GiftRecord> findByIdAndUser_Username(Long id, String username);
 
+    List<GiftRecord> findByUser_UsernameAndPerson_IdIn(String username, List<Long> personIds);
+
     @EntityGraph(attributePaths = {"person", "category"})
     List<GiftRecord> findByUser_UsernameAndStatusAndReceivedDateBetweenOrderByReceivedDateAsc(
             String username, GiftRecordStatus status, LocalDate start, LocalDate end);

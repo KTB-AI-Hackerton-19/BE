@@ -3,6 +3,7 @@ package com.hackathon.backend.controller;
 import com.hackathon.backend.dto.ApiResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.person.PersonDetailResponse;
+import com.hackathon.backend.dto.person.PersonDeleteResponse;
 import com.hackathon.backend.dto.person.PersonRequest;
 import com.hackathon.backend.dto.person.PersonResponse;
 import com.hackathon.backend.service.GiftRecordService;
@@ -94,13 +95,26 @@ public class PersonController {
     }
 
     @Operation(
-            summary = "사람 삭제",
-            description = "남아있는 마음 기록이 없을 때만 삭제된다. 기록이 남아 있으면 400과 함께 남은 건수를 안내한다."
+            summary = "사람 삭제 (단일)",
+            description = "그 사람의 마음 기록·답례 알림·선물 추천이 함께 삭제된다. 기록이 남아 있어도 막지 않는다. "
+                    + "없는 ID면 404. 응답으로 함께 지워진 건수를 돌려주므로 "
+                    + "\"김민수님과 기록 3건을 삭제했어요\" 같은 안내에 그대로 쓰면 된다."
     )
     @DeleteMapping("/{id}")
-    public ApiResponse<Void> delete(
+    public ApiResponse<PersonDeleteResponse> delete(
             @Parameter(description = "삭제할 사람 ID") @PathVariable Long id) {
-        personService.delete(id);
-        return ApiResponse.success(null);
+        return ApiResponse.success(personService.delete(id));
+    }
+
+    @Operation(
+            summary = "사람 삭제 (다중)",
+            description = "목록에서 여러 명을 체크해 한 번에 지울 때 사용한다. 각 사람의 기록·알림·추천도 함께 삭제된다. "
+                    + "이미 지워졌거나 다른 사용자의 ID는 오류 없이 건너뛰고, 실제로 지워진 건수만 돌려준다. "
+                    + "ID를 하나도 보내지 않으면 400."
+    )
+    @DeleteMapping
+    public ApiResponse<PersonDeleteResponse> deleteAll(
+            @Parameter(description = "삭제할 사람 ID 목록 (예: ?ids=1,2,3)") @RequestParam List<Long> ids) {
+        return ApiResponse.success(personService.deleteAll(ids));
     }
 }
