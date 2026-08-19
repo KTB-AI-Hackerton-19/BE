@@ -24,8 +24,8 @@ aws:
 
 ai:
   service:
-    url: ${AI_SERVICE_URL:}
-    api-key: ${AI_SERVICE_API_KEY:}
+    url: ${AI_SERVICE_URL:https://unfreeze-grab-nintendo.ngrok-free.dev}
+    api-key: ${AI_SERVICE_API_KEY:local-development-key}
     timeout-ms: ${AI_SERVICE_TIMEOUT_MS:60000}
 
 springdoc:

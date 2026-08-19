@@ -32,6 +32,7 @@ public class AiExtractionClient {
         this.restClient = RestClient.builder()
                 .requestFactory(requestFactory)
                 .defaultHeader("X-API-KEY", apiKey == null ? "" : apiKey)
+                .defaultHeader("ngrok-skip-browser-warning", "1")
                 .build();
     }
 
