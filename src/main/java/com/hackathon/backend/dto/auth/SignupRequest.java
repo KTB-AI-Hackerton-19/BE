@@ -10,6 +10,10 @@ public record SignupRequest(
 
         @Schema(description = "비밀번호 (4자 이상)", example = "1234")
         @NotBlank(message = "비밀번호를 입력해주세요.")
-        @Size(min = 4, message = "비밀번호는 4자 이상이어야 합니다.") String password
+        @Size(min = 4, message = "비밀번호는 4자 이상이어야 합니다.") String password,
+
+        @Schema(description = "화면에 표시할 이름 (로그인에는 쓰지 않음)", example = "박주승")
+        @NotBlank(message = "이름을 입력해주세요.")
+        @Size(max = 20, message = "이름은 20자 이하여야 합니다.") String name
 ) {
 }
