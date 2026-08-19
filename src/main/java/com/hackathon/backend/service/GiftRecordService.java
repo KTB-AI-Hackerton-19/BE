@@ -32,6 +32,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class GiftRecordService {
 
+    /**
+     * DRAFT의 답례 알림일 기본값 오프셋(받은 날짜 + N일).
+     * 사용자가 확인 폼에서 바꾸면 그 값이 그대로 쓰이며, 알림은 확정(PATCH) 시점에만 생성된다.
+     */
+    private static final int DEFAULT_REMINDER_OFFSET_DAYS = 30;
+
     private final GiftRecordRepository giftRecordRepository;
     private final ReminderTaskRepository reminderTaskRepository;
     private final UserRepository userRepository;
@@ -85,10 +91,15 @@ public class GiftRecordService {
         AiExtractionResult result = aiExtractionClient.extract(imageUrl);
         Category category = categoryService.resolveOrFallback(null, result.categoryName());
 
+        // AI가 뽑은 이름이 등록된 사람과 정확히 일치할 때만 연결한다. 없으면 null로 두고 사용자가 폼에서 고른다.
+        Person person = personService.findByExactName(user, result.senderName());
+
+        LocalDate receivedDate = result.receivedDate() != null ? result.receivedDate() : LocalDate.now();
+
         GiftRecord record = GiftRecord.createDraft(
-                user, request.imageKey(), result.senderName(), result.relationship(), category,
+                user, person, request.imageKey(), result.senderName(), result.relationship(), category,
                 result.occasion(), result.giftName(), result.amount(),
-                result.receivedDate() != null ? result.receivedDate() : LocalDate.now(), null);
+                receivedDate, receivedDate.plusDays(DEFAULT_REMINDER_OFFSET_DAYS));
         giftRecordRepository.save(record);
         return toResponse(record);
     }
@@ -153,7 +164,7 @@ public class GiftRecordService {
                 username, status, resolvedCategoryId, personId, thanked,
                 startDate, endDate, trimToNull(q), pageable);
 
-        List<GiftRecordResponse> content = result.getContent().stream().map(this::toResponse).toList();
+        List<GiftRecordResponse> content = result.getContent().stream().map(r -> toResponse(r, false)).toList();
         return PageResponse.of(result, content);
     }
 
@@ -170,12 +181,23 @@ public class GiftRecordService {
         String username = SecurityUtils.getCurrentUsername();
         return giftRecordRepository.findByUser_UsernameAndPerson_IdOrderByReceivedDateDescIdDesc(username, personId)
                 .stream()
-                .map(this::toResponse)
+                .map(r -> toResponse(r, false))
                 .toList();
     }
 
     public GiftRecordResponse toResponse(GiftRecord record) {
-        String imageUrl = record.getImageKey() != null ? s3PresignService.createGetUrl(record.getImageKey()) : null;
+        return toResponse(record, true);
+    }
+
+    /**
+     * 목록 응답에서는 imageUrl을 만들지 않는다. presigned URL은 15분 만료라 응답마다 새로 서명해야 하는데,
+     * 목록 화면은 카테고리 이모지로 그리므로 100건이면 서명 100번과 URL 100개가 그대로 버려진다.
+     * 사진이 실제로 필요한 단건 조회·DRAFT 응답에서만 발급한다.
+     */
+    private GiftRecordResponse toResponse(GiftRecord record, boolean includeImageUrl) {
+        String imageUrl = includeImageUrl && record.getImageKey() != null
+                ? s3PresignService.createGetUrl(record.getImageKey())
+                : null;
         return GiftRecordResponse.from(record, imageUrl);
     }
 
