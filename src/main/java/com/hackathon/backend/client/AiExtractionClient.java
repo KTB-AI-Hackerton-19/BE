@@ -10,17 +10,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
-/**
- * 선물 이미지 분석 AI 서비스 클라이언트.
- *
- * <p>계약: {@code POST {AI_SERVICE_URL}/extract}, 요청 바디는 {@code {"imageUrl": "<presigned GET URL>"}} 하나.
- * AI 서비스가 아직 없거나(AI_SERVICE_URL 미설정) 호출이 실패하면 하드코딩 더미 결과로 폴백해서
- * 프론트가 지금 당장 전체 흐름을 붙여볼 수 있게 한다.</p>
- */
 @Component
 public class AiExtractionClient {
 
     private static final Logger log = LoggerFactory.getLogger(AiExtractionClient.class);
+
+    private static final String EXTRACT_PATH = "/api/v1/agent/from-image";
 
     private final RestClient restClient;
     private final String aiServiceUrl;
@@ -48,29 +43,35 @@ public class AiExtractionClient {
 
         try {
             AiExtractResponse response = restClient.post()
-                    .uri(aiServiceUrl + "/extract")
+                    .uri(trimTrailingSlash(aiServiceUrl) + EXTRACT_PATH)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(new AiExtractRequest(imageReadUrl))
                     .retrieve()
                     .body(AiExtractResponse.class);
 
-            if (response == null) {
+            AiExtractResponse.Payload payload = response == null ? null : response.payloadOrNull();
+            if (payload == null) {
+                log.warn("AI 응답에 gift_data가 없어 더미 결과로 대체합니다.");
                 return dummyResult();
             }
 
             return new AiExtractionResult(
-                    response.senderName(),
-                    response.relationship(),
-                    response.receivedDate(),
-                    response.occasion(),
-                    response.giftName(),
-                    response.category(),
-                    response.amount()
+                    payload.personName(),
+                    payload.relationship(),
+                    payload.receivedAt(),
+                    null,
+                    payload.giftName(),
+                    null,
+                    payload.giftPrice()
             );
         } catch (RestClientException e) {
             log.warn("AI 분석 서비스 호출 실패, 더미 결과로 대체: {}", e.getMessage());
             return dummyResult();
         }
+    }
+
+    private String trimTrailingSlash(String url) {
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
     private AiExtractionResult dummyResult() {
