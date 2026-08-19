@@ -115,12 +115,13 @@ public class GiftRecord {
         return record;
     }
 
-    public static GiftRecord createDraft(User user, String imageKey, String extractedSenderName,
+    public static GiftRecord createDraft(User user, Person person, String imageKey, String extractedSenderName,
                                          String extractedRelationship, Category category, String occasion,
                                          String giftName, Integer amount, LocalDate receivedDate,
                                          LocalDate reminderDate) {
         GiftRecord record = new GiftRecord();
         record.user = user;
+        record.person = person;
         record.imageKey = imageKey;
         record.extractedSenderName = extractedSenderName;
         record.extractedRelationship = extractedRelationship;
