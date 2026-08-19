@@ -25,7 +25,9 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/ktb-ai-hackerton-19/giftie-backend:latest
+          tags: |
+            ghcr.io/ktb-ai-hackerton-19/giftie-backend:latest
+            ghcr.io/ktb-ai-hackerton-19/giftie-backend:${{ github.sha }}
 
   deploy:
     needs: build-and-push
