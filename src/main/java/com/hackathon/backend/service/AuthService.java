@@ -32,7 +32,7 @@ public class AuthService {
         if (userRepository.existsByUsername(request.username())) {
             throw new CustomException(ErrorCode.DUPLICATE_USERNAME);
         }
-        User user = new User(request.username(), passwordEncoder.encode(request.password()));
+        User user = new User(request.username(), passwordEncoder.encode(request.password()), request.name().trim());
         userRepository.save(user);
     }
 
@@ -79,6 +79,6 @@ public class AuthService {
         String accessToken = jwtProvider.createAccessToken(user.getUsername());
         String refreshToken = jwtProvider.createRefreshToken(user.getUsername());
         user.updateRefreshToken(refreshToken);
-        return new TokenResponse(accessToken, refreshToken);
+        return new TokenResponse(accessToken, refreshToken, user.getName());
     }
 }
