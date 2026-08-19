@@ -23,6 +23,10 @@ public interface ReminderTaskRepository extends JpaRepository<ReminderTask, Long
     List<ReminderTask> findByUser_UsernameAndScheduledAtBetweenOrderByScheduledAtAsc(
             String username, LocalDate start, LocalDate end);
 
+    /** 답례 날짜가 가장 가까운 사람 순으로 훑을 때 사용 (선물 추천의 자동 대상 선정). */
+    @EntityGraph(attributePaths = {"person"})
+    List<ReminderTask> findByUser_UsernameAndStatusOrderByScheduledAtAsc(String username, ReminderStatus status);
+
     Optional<ReminderTask> findByGiftRecord_Id(Long giftRecordId);
 
     void deleteByGiftRecord_Id(Long giftRecordId);
