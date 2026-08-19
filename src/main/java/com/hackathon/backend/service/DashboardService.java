@@ -8,6 +8,7 @@ import com.hackathon.backend.dto.dashboard.DashboardResponse;
 import com.hackathon.backend.dto.dashboard.DashboardStatsResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.recommendation.RecommendationResponse;
+import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.repository.GiftRecordRepository;
 import com.hackathon.backend.repository.PersonRepository;
 import com.hackathon.backend.repository.ReminderTaskRepository;
@@ -67,9 +68,10 @@ public class DashboardService {
     }
 
     private DashboardStatsResponse buildStats(String username, LocalDate today) {
-        long totalRecords = giftRecordRepository.countByUser_Username(username);
+        long totalRecords = giftRecordRepository.countByUser_UsernameAndStatus(username, GiftRecordStatus.CONFIRMED);
         LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
-        long recordsThisMonth = giftRecordRepository.countByUser_UsernameAndCreatedAtGreaterThanEqual(username, monthStart);
+        long recordsThisMonth = giftRecordRepository.countByUser_UsernameAndStatusAndCreatedAtGreaterThanEqual(
+                username, GiftRecordStatus.CONFIRMED, monthStart);
         long totalPeople = personRepository.countByUser_Username(username);
         long upcoming = reminderTaskRepository.countByUser_UsernameAndScheduledAtGreaterThanEqual(username, today);
 

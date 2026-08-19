@@ -3,6 +3,7 @@ package com.hackathon.backend.service;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
 import com.hackathon.backend.domain.User;
+import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.person.PersonDeleteResponse;
 import com.hackathon.backend.dto.person.PersonRequest;
 import com.hackathon.backend.dto.person.PersonResponse;
@@ -19,6 +20,9 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,15 +65,32 @@ public class PersonService {
         return buildSummary(username, person);
     }
 
-    /** 사람 목록 화면 — 이름 검색(q) 지원. 마음 개수/최근 선물/다가오는 알림일까지 채워서 내려준다. */
+    /** 페이징 없이 전체가 필요할 때(모달의 사람 선택 드롭다운 등). */
     @Transactional(readOnly = true)
     public List<PersonResponse> list(String q) {
         String username = SecurityUtils.getCurrentUsername();
         List<Person> people = (q == null || q.isBlank())
                 ? personRepository.findByUser_UsernameOrderByNameAsc(username)
                 : personRepository.findByUser_UsernameAndNameContainingIgnoreCaseOrderByNameAsc(username, q.trim());
+        return decorate(username, people);
+    }
 
-        // 사람마다 쿼리를 던지지 않도록 개수/최근기록/알림일을 한 번에 모아서 메모리에서 매칭한다.
+    /**
+     * 사람 목록 화면 — 이름 검색(q) + 페이징.
+     * 사람이 수십 명을 넘어가면 한 번에 다 내려주는 게 부담이라 페이지로 끊는다.
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<PersonResponse> search(String q, int page, int size) {
+        String username = SecurityUtils.getCurrentUsername();
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100));
+        Page<Person> result = (q == null || q.isBlank())
+                ? personRepository.findByUser_UsernameOrderByNameAsc(username, pageable)
+                : personRepository.findByUser_UsernameAndNameContainingIgnoreCaseOrderByNameAsc(username, q.trim(), pageable);
+        return PageResponse.of(result, decorate(username, result.getContent()));
+    }
+
+    /** 목록 항목에 마음 개수/최근 선물/다가오는 알림일을 채운다. 사람마다 쿼리를 던지지 않는다. */
+    private List<PersonResponse> decorate(String username, List<Person> people) {
         Map<Long, Long> counts = new HashMap<>();
         giftRecordRepository.countGroupedByPerson(username)
                 .forEach(row -> counts.put((Long) row[0], (Long) row[1]));

@@ -16,6 +16,7 @@ public enum ErrorCode {
     DUPLICATE_CATEGORY(HttpStatus.CONFLICT, "이미 존재하는 카테고리 이름입니다."),
     REMINDER_NOT_FOUND(HttpStatus.NOT_FOUND, "답례 알림을 찾을 수 없습니다."),
     INVALID_FILE_TYPE(HttpStatus.BAD_REQUEST, "허용되지 않는 파일 형식입니다."),
+    AI_SERVICE_ERROR(HttpStatus.BAD_GATEWAY, "AI 분석 서비스 호출에 실패했습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다.");
 
     private final HttpStatus status;

@@ -44,12 +44,22 @@ public record GiftRecordResponse(
         @Schema(description = "경조사 여부(경사 또는 조사). 큰 틀 필터에 쓰면 된다", example = "true") boolean event,
 
         @Schema(description = "DRAFT(AI 추출 직후, 사용자 확인 전) 또는 CONFIRMED(사용자 확정 완료)") GiftRecordStatus status,
-        @Schema(description = "기록 생성 시각") LocalDateTime createdAt
+        @Schema(description = "기록 생성 시각") LocalDateTime createdAt,
+
+        @Schema(description = "true면 AI가 아니라 하드코딩 더미로 채워진 값이다. AI 서버가 죽어 있어도 화면은 정상으로 "
+                + "보이기 때문에, 연동 확인 시 반드시 이 값을 봐야 한다", example = "false") boolean aiFallback,
+
+        @Schema(description = "aiFallback이 true일 때 왜 실패했는지. AI가 준 에러 본문이 그대로 들어간다",
+                example = "AI 502 BAD_GATEWAY: {\"detail\":\"이미지 분석에 실패했습니다.\"}") String aiError
 ) {
     private static final String DEFAULT_EMOJI = "🎁";
     private static final String DEFAULT_COLOR = "blue";
 
     public static GiftRecordResponse from(GiftRecord record, String imageUrl) {
+        return from(record, imageUrl, false, null);
+    }
+
+    public static GiftRecordResponse from(GiftRecord record, String imageUrl, boolean aiFallback, String aiError) {
         Person person = record.getPerson();
         Category category = record.getCategory();
         return new GiftRecordResponse(
@@ -75,7 +85,9 @@ public record GiftRecordResponse(
                 category != null && category.getKind() != null ? category.getKind().getLabel() : null,
                 category != null && category.getKind() != null && category.getKind().isEvent(),
                 record.getStatus(),
-                record.getCreatedAt()
+                record.getCreatedAt(),
+                aiFallback,
+                aiError
         );
     }
 }

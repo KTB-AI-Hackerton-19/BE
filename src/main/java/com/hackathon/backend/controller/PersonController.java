@@ -1,6 +1,7 @@
 package com.hackathon.backend.controller;
 
 import com.hackathon.backend.dto.ApiResponse;
+import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.person.PersonDetailResponse;
 import com.hackathon.backend.dto.person.PersonDeleteResponse;
@@ -40,12 +41,16 @@ public class PersonController {
             summary = "사람 목록 조회",
             description = "사람들 화면의 목록. 각 항목에 마음 개수(giftCount), 최근 받은 선물(latestGift), "
                     + "가장 가까운 답례 알림일(upcomingReminderDate)까지 채워서 내려주므로 추가 호출이 필요 없다. "
-                    + "q를 주면 이름으로 검색한다."
+                    + "q를 주면 이름으로 검색한다. 사람이 많아질 수 있어 페이징된다(기본 30건)."
     )
     @GetMapping
-    public ApiResponse<List<PersonResponse>> list(
-            @Parameter(description = "이름 검색어 (부분 일치)", example = "민수") @RequestParam(required = false) String q) {
-        return ApiResponse.success(personService.list(q));
+    public ApiResponse<PageResponse<PersonResponse>> list(
+            @Parameter(description = "이름 검색어 (부분 일치)", example = "민수") @RequestParam(required = false) String q,
+            @Parameter(description = "페이지 번호 (0부터)", example = "0")
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @Parameter(description = "페이지 크기 (최대 100)", example = "20")
+            @RequestParam(required = false, defaultValue = "20") int size) {
+        return ApiResponse.success(personService.search(q, page, size));
     }
 
     @Operation(
@@ -66,10 +71,14 @@ public class PersonController {
             description = "특정 사람에게 받은 마음만 받은 날짜 최신순으로 조회한다. 상세 화면의 타임라인만 다시 불러올 때 사용."
     )
     @GetMapping("/{id}/gift-records")
-    public ApiResponse<List<GiftRecordResponse>> records(
-            @Parameter(description = "조회할 사람 ID") @PathVariable Long id) {
+    public ApiResponse<PageResponse<GiftRecordResponse>> records(
+            @Parameter(description = "조회할 사람 ID") @PathVariable Long id,
+            @Parameter(description = "페이지 번호 (0부터)", example = "0")
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @Parameter(description = "페이지 크기 (최대 100)", example = "20")
+            @RequestParam(required = false, defaultValue = "20") int size) {
         personService.get(id); // 소유권 검증 (다른 사용자의 사람이면 404)
-        return ApiResponse.success(giftRecordService.listByPerson(id));
+        return ApiResponse.success(giftRecordService.listByPerson(id, page, size));
     }
 
     @Operation(

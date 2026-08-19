@@ -27,17 +27,25 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class GiftRecordService {
 
+    private static final Logger log = LoggerFactory.getLogger(GiftRecordService.class);
+
     /**
      * DRAFT의 답례 알림일 기본값 오프셋(받은 날짜 + N일).
      * 사용자가 확인 폼에서 바꾸면 그 값이 그대로 쓰이며, 알림은 확정(PATCH) 시점에만 생성된다.
      */
     private static final int DEFAULT_REMINDER_OFFSET_DAYS = 30;
+
+    /** 받은 날짜로 허용하는 미래 범위. 오늘 날짜를 잘못 입력하는 것과 실제 예약을 구분하려는 최소한의 방어. */
+    private static final int MAX_FUTURE_DAYS = 1;
 
     private final GiftRecordRepository giftRecordRepository;
     private final ReminderTaskRepository reminderTaskRepository;
@@ -47,10 +55,18 @@ public class GiftRecordService {
     private final S3PresignService s3PresignService;
     private final AiExtractionClient aiExtractionClient;
 
+    /**
+     * AI 호출 전에 기다리는 시간(ms). 프론트가 S3 PUT을 끝내자마자 extract를 부르는 구조라,
+     * 업로드가 아직 안 끝났을 가능성을 없애려고 둔 여유 시간이다.
+     * 0으로 두면 기다리지 않는다({@code AI_PRE_REQUEST_DELAY_MS=0}).
+     */
+    private final long preRequestDelayMs;
+
     public GiftRecordService(GiftRecordRepository giftRecordRepository, ReminderTaskRepository reminderTaskRepository,
                              UserRepository userRepository, PersonService personService,
                              CategoryService categoryService, S3PresignService s3PresignService,
-                             AiExtractionClient aiExtractionClient) {
+                             AiExtractionClient aiExtractionClient,
+                             @Value("${ai.service.pre-request-delay-ms:15000}") long preRequestDelayMs) {
         this.giftRecordRepository = giftRecordRepository;
         this.reminderTaskRepository = reminderTaskRepository;
         this.userRepository = userRepository;
@@ -58,6 +74,7 @@ public class GiftRecordService {
         this.categoryService = categoryService;
         this.s3PresignService = s3PresignService;
         this.aiExtractionClient = aiExtractionClient;
+        this.preRequestDelayMs = preRequestDelayMs;
     }
 
     /** 기록 모달 저장 / 직접 등록. 보낸 사람은 personId 또는 이름으로 지정하며, 없는 이름이면 새 Person을 만든다. */
@@ -65,6 +82,8 @@ public class GiftRecordService {
     public GiftRecordResponse create(GiftRecordCreateRequest request) {
         String username = SecurityUtils.getCurrentUsername();
         User user = getUser(username);
+
+        validateDates(request.date(), request.reminderDate());
 
         Person person = personService.resolveOrCreate(user, request.personId(), request.personName(), request.relation());
         Category category = categoryService.resolveOrFallback(request.categoryId(), request.category());
@@ -89,6 +108,7 @@ public class GiftRecordService {
         User user = getUser(username);
 
         String imageUrl = s3PresignService.createGetUrl(request.imageKey());
+        awaitUpload();
         AiExtractionResult result = aiExtractionClient.extract(imageUrl);
         Category category = categoryService.resolveOrFallback(null, result.categoryName());
 
@@ -102,7 +122,28 @@ public class GiftRecordService {
                 result.occasion(), result.giftName(), result.amount(),
                 receivedDate, receivedDate.plusDays(DEFAULT_REMINDER_OFFSET_DAYS));
         giftRecordRepository.save(record);
-        return toResponse(record);
+
+        // AI가 아니라 더미로 채워졌으면 응답에 그대로 실어 보낸다(로그만으로는 프론트가 알 수 없다).
+        String draftImageUrl = s3PresignService.createGetUrl(record.getImageKey());
+        return GiftRecordResponse.from(record, draftImageUrl, result.fallback(), result.fallbackReason());
+    }
+
+    /**
+     * AI를 부르기 전에 업로드가 끝날 시간을 준다.
+     *
+     * <p>인터럽트가 오면 삼키지 않고 플래그를 되돌려 놓는다. 안 그러면 서버를 내릴 때
+     * 이 스레드만 인터럽트를 잃고 계속 살아 있게 된다.</p>
+     */
+    private void awaitUpload() {
+        if (preRequestDelayMs <= 0) {
+            return;
+        }
+        log.info("AI 호출 전 {}ms 대기 (S3 업로드 완료 여유)", preRequestDelayMs);
+        try {
+            Thread.sleep(preRequestDelayMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** 확인/수정 폼 저장(확정) 및 이후 수정. 보내지 않은 필드는 기존 값을 유지한다. */
@@ -112,6 +153,8 @@ public class GiftRecordService {
         User user = getUser(username);
         GiftRecord record = giftRecordRepository.findByIdAndUser_Username(id, username)
                 .orElseThrow(() -> new CustomException(ErrorCode.GIFT_RECORD_NOT_FOUND));
+
+        validateDates(request.date(), request.reminderDate());
 
         Person person = personService.resolveOrCreateNullable(
                 user, request.personId(), request.personName(), request.relation());
@@ -178,6 +221,16 @@ public class GiftRecordService {
         return toResponse(record);
     }
 
+    /** 사람 상세 타임라인 — 페이징. 한 사람에게 여러 번 받으면 목록이 길어진다. */
+    @Transactional(readOnly = true)
+    public PageResponse<GiftRecordResponse> listByPerson(Long personId, int page, int size) {
+        String username = SecurityUtils.getCurrentUsername();
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100));
+        Page<GiftRecord> result = giftRecordRepository
+                .findByUser_UsernameAndPerson_IdOrderByReceivedDateDescIdDesc(username, personId, pageable);
+        return PageResponse.of(result, result.getContent().stream().map(r -> toResponse(r, false)).toList());
+    }
+
     @Transactional(readOnly = true)
     public List<GiftRecordResponse> listByPerson(Long personId) {
         String username = SecurityUtils.getCurrentUsername();
@@ -235,6 +288,25 @@ public class GiftRecordService {
     private User getUser(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+    }
+
+    /**
+     * 날짜 검증. 사용자가 연도를 잘못 치면(2099, 1900) 캘린더와 통계가 통째로 망가지므로 막는다.
+     *
+     * <p>답례 알림일이 과거면 스케줄러가 다음 정각에 바로 발송해버린다 —
+     * 시연 중에 엉뚱한 알림이 뜨는 원인이라 저장 시점에 거른다.</p>
+     */
+    private void validateDates(LocalDate receivedDate, LocalDate reminderDate) {
+        LocalDate today = LocalDate.now();
+        if (receivedDate != null && receivedDate.isAfter(today.plusDays(MAX_FUTURE_DAYS))) {
+            throw new CustomException(ErrorCode.INVALID_INPUT, "받은 날짜는 미래일 수 없습니다.");
+        }
+        if (reminderDate != null && reminderDate.isBefore(today)) {
+            throw new CustomException(ErrorCode.INVALID_INPUT, "답례 알림일은 오늘 이후로 정해주세요.");
+        }
+        if (receivedDate != null && reminderDate != null && reminderDate.isBefore(receivedDate)) {
+            throw new CustomException(ErrorCode.INVALID_INPUT, "답례 알림일은 받은 날짜보다 앞설 수 없습니다.");
+        }
     }
 
     private String trimToNull(String value) {

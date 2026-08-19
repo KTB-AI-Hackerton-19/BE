@@ -62,10 +62,21 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
     @EntityGraph(attributePaths = {"person", "category"})
     List<GiftRecord> findByUser_UsernameAndPerson_IdOrderByReceivedDateDescIdDesc(String username, Long personId);
 
+    /** 사람 상세의 타임라인. 한 사람에게 여러 번 받을 수 있어 페이지로 끊는다. */
+    @EntityGraph(attributePaths = {"person", "category"})
+    Page<GiftRecord> findByUser_UsernameAndPerson_IdOrderByReceivedDateDescIdDesc(
+            String username, Long personId, Pageable pageable);
+
     @EntityGraph(attributePaths = {"person", "category"})
     List<GiftRecord> findByUser_UsernameOrderByReceivedDateDescIdDesc(String username);
 
     long countByUser_Username(String username);
+
+    /** 대시보드 통계용. 확정된 기록만 센다(사진만 올리고 취소한 DRAFT가 숫자에 끼면 안 된다). */
+    long countByUser_UsernameAndStatus(String username, GiftRecordStatus status);
+
+    long countByUser_UsernameAndStatusAndCreatedAtGreaterThanEqual(
+            String username, GiftRecordStatus status, LocalDateTime from);
 
     long countByUser_UsernameAndCreatedAtGreaterThanEqual(String username, LocalDateTime from);
 
