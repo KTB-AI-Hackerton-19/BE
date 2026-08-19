@@ -124,6 +124,18 @@ public class PersonService {
         return person;
     }
 
+    /**
+     * 이름이 정확히 일치하는 <b>이미 등록된</b> 사람만 찾는다. 없으면 null이며 새로 만들지 않는다.
+     * AI가 추출한 이름은 오탈자가 있을 수 있어 참고용이므로, 확실할 때만 연결하려고 별도로 둔다.
+     */
+    @Transactional(readOnly = true)
+    public Person findByExactName(User user, String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return personRepository.findByUser_UsernameAndName(user.getUsername(), name.trim()).orElse(null);
+    }
+
     /** 위와 같지만 아무 정보도 안 왔으면 null을 돌려준다(PATCH 부분 수정용). */
     @Transactional
     public Person resolveOrCreateNullable(User user, Long personId, String personName, String relation) {
