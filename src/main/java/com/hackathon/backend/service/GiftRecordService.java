@@ -14,6 +14,7 @@ import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.category.CategoryResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
+import com.hackathon.backend.dto.gift.GiftRecordDeleteResponse;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
 import com.hackathon.backend.dto.gift.GiftRecordPersonLinkRequest;
@@ -30,6 +31,7 @@ import com.hackathon.backend.support.MoneyFormatter;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -317,13 +319,50 @@ public class GiftRecordService {
         return toResponse(record);
     }
 
+    /** 기록 한 건 삭제. 딸린 답례 알림도 함께 사라진다. 없는 id면 404. */
     @Transactional
     public void delete(Long id) {
         String username = SecurityUtils.getCurrentUsername();
         GiftRecord record = giftRecordRepository.findByIdAndUser_Username(id, username)
                 .orElseThrow(() -> new CustomException(ErrorCode.GIFT_RECORD_NOT_FOUND));
-        reminderTaskRepository.deleteByGiftRecord_Id(record.getId());
-        giftRecordRepository.delete(record);
+        deleteRecords(List.of(record));
+    }
+
+    /**
+     * 기록 여러 건 삭제(목록에서 체크해 한 번에 지우는 용도).
+     *
+     * <p>없는 id나 다른 사용자의 기록은 <b>조용히 건너뛴다.</b> 10건을 골랐는데 그중 하나가 이미 지워졌다고
+     * 전체를 실패시키면 사용자가 다시 고르는 수밖에 없어서, 지울 수 있는 것만 지우고 실제 건수를 돌려준다.
+     * 사람 다중 삭제({@code PersonService.deleteAll})와 같은 방침이다.</p>
+     */
+    @Transactional
+    public GiftRecordDeleteResponse deleteAll(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new CustomException(ErrorCode.INVALID_INPUT, "삭제할 기록의 id를 하나 이상 보내주세요.");
+        }
+        String username = SecurityUtils.getCurrentUsername();
+        // 같은 id가 두 번 오면 삭제 건수가 부풀려지므로 먼저 중복을 제거한다.
+        List<Long> unique = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (unique.isEmpty()) {
+            throw new CustomException(ErrorCode.INVALID_INPUT, "삭제할 기록의 id를 하나 이상 보내주세요.");
+        }
+        return deleteRecords(giftRecordRepository.findByIdInAndUser_Username(unique, username));
+    }
+
+    /**
+     * 삭제 순서가 중요하다. 기록을 참조하는 답례 알림을 먼저 비워야 FK 제약에 걸리지 않는다.
+     * 사람(Person)은 건드리지 않는다 — 기록이 없어졌다고 상대방을 목록에서 지울 이유가 없다.
+     */
+    private GiftRecordDeleteResponse deleteRecords(List<GiftRecord> records) {
+        if (records.isEmpty()) {
+            return GiftRecordDeleteResponse.empty();
+        }
+        long reminders = reminderTaskRepository.deleteByGiftRecord_IdIn(
+                records.stream().map(GiftRecord::getId).toList());
+        giftRecordRepository.deleteAll(records);
+
+        log.info("마음 기록 삭제 — 기록 {}건, 답례 알림 {}건", records.size(), reminders);
+        return new GiftRecordDeleteResponse(records.size(), (int) reminders);
     }
 
     /** 마음 기록 목록 — 카테고리/사람/기간/검색어/감사여부 필터 + 정렬 + 페이징. */

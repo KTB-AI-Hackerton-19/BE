@@ -44,8 +44,7 @@ public interface ReminderTaskRepository extends JpaRepository<ReminderTask, Long
 
     Optional<ReminderTask> findByGiftRecord_Id(Long giftRecordId);
 
-    void deleteByGiftRecord_Id(Long giftRecordId);
-
+    /** 기록 삭제 시 딸린 알림 정리. 단건 삭제도 List.of(id)로 이걸 쓴다. */
     long deleteByGiftRecord_IdIn(List<Long> giftRecordIds);
 
     long deleteByPerson_IdIn(List<Long> personIds);

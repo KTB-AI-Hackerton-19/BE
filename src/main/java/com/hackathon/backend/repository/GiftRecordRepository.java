@@ -71,6 +71,9 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
 
     List<GiftRecord> findByUser_UsernameAndPerson_IdIn(String username, List<Long> personIds);
 
+    /** 다중 삭제용. 다른 사용자의 id가 섞여 오면 조회 단계에서 걸러진다. */
+    List<GiftRecord> findByIdInAndUser_Username(List<Long> ids, String username);
+
     @EntityGraph(attributePaths = {"person", "category"})
     List<GiftRecord> findByUser_UsernameAndStatusAndReceivedDateBetweenOrderByReceivedDateAsc(
             String username, GiftRecordStatus status, LocalDate start, LocalDate end);
