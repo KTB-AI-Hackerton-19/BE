@@ -20,8 +20,11 @@ public record CategoryResponse(
         @Schema(description = "현재 로그인 사용자가 이 카테고리로 기록한 건수. 경조사 탭에서는 '몇 명에게 받았는지'가 된다", example = "32") long recordCount,
         @Schema(description = "이 카테고리 기록의 금액 합계", example = "1240000") long totalAmount,
         @Schema(description = "포맷된 금액 합계. 그대로 출력하면 된다", example = "1,240,000원") String totalAmountText,
-        @Schema(description = "가장 최근에 받은 날짜. 경조사 카드의 날짜 표시와 정렬에 쓴다 (기록이 없으면 null)",
-                example = "2026-05-10") LocalDate latestDate
+        @Schema(description = "가장 최근에 받은 날짜. 기록이 없으면 null", example = "2026-05-10") LocalDate latestDate,
+        @Schema(description = "행사일. 경조사 카테고리에서 사용자가 입력한 실제 행사 날짜 (선물 카테고리는 항상 null)",
+                example = "2026-05-10") LocalDate eventDate,
+        @Schema(description = "경조사 카드에 표시할 날짜. 행사일이 있으면 행사일, 없으면 가장 최근 기록일. "
+                + "프론트는 이 값만 그리면 되고 정렬도 이 기준으로 되어 있다", example = "2026-05-10") LocalDate displayDate
 ) {
     public static CategoryResponse from(Category category, long recordCount) {
         return from(category, recordCount, 0L, null);
@@ -41,7 +44,9 @@ public record CategoryResponse(
                 recordCount,
                 totalAmount,
                 MoneyFormatter.format((int) totalAmount),
-                latestDate
+                latestDate,
+                category.getEventDate(),
+                category.getEventDate() != null ? category.getEventDate() : latestDate
         );
     }
 }

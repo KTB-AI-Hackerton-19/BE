@@ -23,7 +23,7 @@ public interface PersonRepository extends JpaRepository<Person, Long> {
 
     List<Person> findByIdInAndUser_Username(List<Long> ids, String username);
 
-    Optional<Person> findByUser_UsernameAndName(String username, String name);
+    List<Person> findByUser_UsernameAndNameOrderByIdAsc(String username, String name);
 
     long countByUser_Username(String username);
 

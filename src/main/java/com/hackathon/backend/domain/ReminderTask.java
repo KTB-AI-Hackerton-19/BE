@@ -67,6 +67,19 @@ public class ReminderTask {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
+    /**
+     * 구글 캘린더에 등록된 이벤트 id. 연동한 사용자에게만 채워진다.
+     *
+     * <p>답례일자가 바뀌면 새 일정을 또 만드는 게 아니라 이 id로 기존 일정을 옮겨야 한다.
+     * 안 그러면 날짜를 두 번 고친 사용자의 캘린더에 유령 일정이 세 개 남는다.</p>
+     */
+    @Column(length = 200)
+    private String googleEventId;
+
+    /** 구글 캘린더에서 그 일정을 여는 링크. 등록 직후 화면에서 "캘린더에서 보기"로 쓴다. */
+    @Column(length = 500)
+    private String googleHtmlLink;
+
     public ReminderTask(User user, Person person, GiftRecord giftRecord, LocalDate scheduledAt) {
         this.user = user;
         this.person = person;
@@ -84,6 +97,17 @@ public class ReminderTask {
         this.status = ReminderStatus.PENDING;
         this.sentAt = null;
         this.delivered = false;
+    }
+
+    /** 구글 캘린더 등록/갱신 결과를 붙인다. */
+    public void linkGoogleEvent(String googleEventId, String googleHtmlLink) {
+        this.googleEventId = googleEventId;
+        this.googleHtmlLink = googleHtmlLink;
+    }
+
+    public void clearGoogleEvent() {
+        this.googleEventId = null;
+        this.googleHtmlLink = null;
     }
 
     public void markSent() {

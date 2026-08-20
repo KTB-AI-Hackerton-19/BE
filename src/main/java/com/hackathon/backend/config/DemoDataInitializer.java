@@ -222,8 +222,10 @@ public class DemoDataInitializer {
         // 카테고리는 사용자별이므로 이 계정 것으로 먼저 깔아둔다(선물 6종).
         categoryService.provisionDefaults(user);
         // 경조사 탭은 기본값이 없다. 데모에서 이벤트 카드가 보이도록 실제 이벤트 두 개를 만들어준다.
-        categoryRepository.save(new Category(user, "내 결혼식", "💒", "gold", 110, true, GiftKind.CELEBRATION));
-        categoryRepository.save(new Category(user, "아버지 장례식", "🕊️", "blue", 120, true, GiftKind.CONDOLENCE));
+        categoryRepository.save(new Category(user, "내 결혼식", "💒", "gold", 110, true, GiftKind.CELEBRATION,
+                today.minusDays(60)));
+        categoryRepository.save(new Category(user, "아버지 장례식", "🕊️", "blue", 120, true, GiftKind.CONDOLENCE,
+                today.minusDays(200)));
         Map<String, Category> categories = new LinkedHashMap<>();
         categoryRepository.findByUser_UsernameOrderByDisplayOrderAscIdAsc(username)
                 .forEach(c -> categories.put(c.getName(), c));

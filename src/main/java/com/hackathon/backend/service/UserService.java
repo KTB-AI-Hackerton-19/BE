@@ -8,6 +8,7 @@ import com.hackathon.backend.exception.CustomException;
 import com.hackathon.backend.exception.ErrorCode;
 import com.hackathon.backend.repository.CategoryRepository;
 import com.hackathon.backend.repository.GiftRecordRepository;
+import com.hackathon.backend.repository.GoogleCredentialRepository;
 import com.hackathon.backend.repository.PersonRepository;
 import com.hackathon.backend.repository.RecommendedGiftRepository;
 import com.hackathon.backend.repository.ReminderTaskRepository;
@@ -30,16 +31,19 @@ public class UserService {
     private final ReminderTaskRepository reminderTaskRepository;
     private final RecommendedGiftRepository recommendedGiftRepository;
     private final CategoryRepository categoryRepository;
+    private final GoogleCredentialRepository googleCredentialRepository;
     private final S3PresignService s3PresignService;
 
     public UserService(UserRepository userRepository, PersonRepository personRepository,
                        GiftRecordRepository giftRecordRepository, ReminderTaskRepository reminderTaskRepository,
+                       GoogleCredentialRepository googleCredentialRepository,
                        RecommendedGiftRepository recommendedGiftRepository, CategoryRepository categoryRepository,
                        S3PresignService s3PresignService) {
         this.userRepository = userRepository;
         this.personRepository = personRepository;
         this.giftRecordRepository = giftRecordRepository;
         this.reminderTaskRepository = reminderTaskRepository;
+        this.googleCredentialRepository = googleCredentialRepository;
         this.recommendedGiftRepository = recommendedGiftRepository;
         this.categoryRepository = categoryRepository;
         this.s3PresignService = s3PresignService;
@@ -88,6 +92,8 @@ public class UserService {
         int reminders = reminderTaskRepository.findByUser_UsernameOrderByScheduledAtAsc(username).size();
         int categories = categoryRepository.findByUser_UsernameOrderByDisplayOrderAscIdAsc(username).size();
 
+        // 구글 연동 정보를 먼저 지운다. user_id를 FK로 잡고 있어서 남아 있으면 회원 삭제가 막힌다.
+        googleCredentialRepository.deleteByUser_Username(username);
         reminderTaskRepository.deleteByUser_Username(username);
         giftRecordRepository.deleteByUser_Username(username);
         recommendedGiftRepository.deleteByUser_Username(username);

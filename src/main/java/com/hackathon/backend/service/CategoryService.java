@@ -111,11 +111,12 @@ public class CategoryService {
                 })
                 // 선물은 지정한 순서대로, 경조사는 최근 이벤트가 위로 오게 한다.
                 // (경조사는 시간이 지날수록 쌓이므로 최신순이 아니면 오래된 게 계속 위에 남는다)
+                // 경조사의 기준 날짜는 사용자가 입력한 행사일이고, 아직 없으면 마지막 기록일로 대신한다(displayDate).
                 .sorted(Comparator
                         .comparing(CategoryResponse::event)
                         .thenComparing(r -> r.event() ? null : r.displayOrder(),
                                 Comparator.nullsFirst(Comparator.naturalOrder()))
-                        .thenComparing(CategoryResponse::latestDate,
+                        .thenComparing(CategoryResponse::displayDate,
                                 Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
     }
@@ -137,7 +138,8 @@ public class CategoryService {
                 blankToDefault(request.color(), DEFAULT_COLOR),
                 order,
                 request.active() == null || request.active(),
-                GiftKind.parseOrDefault(request.kind())
+                GiftKind.parseOrDefault(request.kind()),
+                request.eventDate()
         );
         categoryRepository.save(category);
         return CategoryResponse.from(category, 0L);
@@ -154,7 +156,7 @@ public class CategoryService {
             throw new CustomException(ErrorCode.DUPLICATE_CATEGORY);
         }
         category.update(name, request.emoji(), request.color(), request.displayOrder(), request.active(),
-                request.kind() == null ? null : GiftKind.parseOrDefault(request.kind()));
+                request.kind() == null ? null : GiftKind.parseOrDefault(request.kind()), request.eventDate());
 
         long count = giftRecordRepository.countByUser_UsernameAndCategory_Id(username, category.getId());
         return CategoryResponse.from(category, count);

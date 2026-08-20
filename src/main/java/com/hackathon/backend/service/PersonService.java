@@ -49,9 +49,12 @@ public class PersonService {
     @Transactional
     public PersonResponse create(PersonRequest request) {
         User user = getCurrentUser();
-        Person person = personRepository.findByUser_UsernameAndName(user.getUsername(), request.name().trim())
-                .orElseGet(() -> personRepository.save(
-                        new Person(user, request.name().trim(), request.relation(), request.gender(), request.birthday(), request.memo())));
+        String createName = request.name().trim();
+        Person existing = firstByName(user.getUsername(), createName);
+        Person person = existing != null
+                ? existing
+                : personRepository.save(new Person(user, createName, request.relation(), request.gender(),
+                        request.birthday(), request.memo()));
         person.update(null, request.relation(), request.gender(), request.birthday(), request.memo());
         return PersonResponse.of(person, 0L, null, null);
     }
@@ -61,6 +64,7 @@ public class PersonService {
         String username = SecurityUtils.getCurrentUsername();
         Person person = personRepository.findByIdAndUser_Username(id, username)
                 .orElseThrow(() -> new CustomException(ErrorCode.PERSON_NOT_FOUND));
+
         person.update(request.name(), request.relation(), request.gender(), request.birthday(), request.memo());
         return buildSummary(username, person);
     }
@@ -204,7 +208,18 @@ public class PersonService {
         if (name == null || name.isBlank()) {
             return null;
         }
-        return personRepository.findByUser_UsernameAndName(user.getUsername(), name.trim()).orElse(null);
+        return firstByName(user.getUsername(), name.trim());
+    }
+
+    /**
+     * 이름으로 한 명을 고른다. 중복이 이미 있으면 <b>가장 먼저 등록된 사람</b>을 쓴다.
+     *
+     * <p>동명이인을 허용하기 때문에 Optional로 받으면 안 된다. 중복이 있는 순간 그 이름을 쓰는 요청이
+     * 전부 NonUniqueResultException으로 500이 나기 때문이다.</p>
+     */
+    private Person firstByName(String username, String name) {
+        List<Person> found = personRepository.findByUser_UsernameAndNameOrderByIdAsc(username, name);
+        return found.isEmpty() ? null : found.get(0);
     }
 
     /** 위와 같지만 아무 정보도 안 왔으면 null을 돌려준다(PATCH 부분 수정용). */
@@ -222,8 +237,10 @@ public class PersonService {
             return null;
         }
         String name = personName.trim();
-        Person person = personRepository.findByUser_UsernameAndName(user.getUsername(), name)
-                .orElseGet(() -> personRepository.save(new Person(user, name, relation, null, null, null)));
+        Person existing = firstByName(user.getUsername(), name);
+        Person person = existing != null
+                ? existing
+                : personRepository.save(new Person(user, name, relation, null, null, null));
         if (relation != null && !relation.isBlank()) {
             person.update(null, relation, null, null, null);
         }

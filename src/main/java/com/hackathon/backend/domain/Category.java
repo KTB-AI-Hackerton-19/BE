@@ -12,6 +12,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.time.LocalDate;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -69,8 +70,24 @@ public class Category {
     @Column(nullable = false)
     private boolean active;
 
+    /**
+     * 행사일. 경조사 카테고리("내 결혼식", "아버지 장례식")에서 <b>행사가 실제로 열린 날</b>을 담는다.
+     *
+     * <p>기록의 receivedDate(축의금을 받은 날)와는 다르다 — 축의금은 행사 전후로 흩어져 들어오므로
+     * 기록에서 역산하면 행사일이 하루씩 어긋난다. 그래서 사용자가 직접 입력받아 여기 저장한다.</p>
+     *
+     * <p>일반 선물(GIFT) 카테고리에는 의미가 없어 항상 null로 유지된다 — kind가 GIFT면 들어와도 버린다.</p>
+     */
+    @Column
+    private LocalDate eventDate;
+
     public Category(User user, String name, String emoji, String color, Integer displayOrder, boolean active,
                     GiftKind kind) {
+        this(user, name, emoji, color, displayOrder, active, kind, null);
+    }
+
+    public Category(User user, String name, String emoji, String color, Integer displayOrder, boolean active,
+                    GiftKind kind, LocalDate eventDate) {
         this.user = user;
         this.kind = kind == null ? GiftKind.GIFT : kind;
         this.name = name;
@@ -78,9 +95,11 @@ public class Category {
         this.color = color;
         this.displayOrder = displayOrder;
         this.active = active;
+        this.eventDate = this.kind.isEvent() ? eventDate : null;
     }
 
-    public void update(String name, String emoji, String color, Integer displayOrder, Boolean active, GiftKind kind) {
+    public void update(String name, String emoji, String color, Integer displayOrder, Boolean active, GiftKind kind,
+                       LocalDate eventDate) {
         if (kind != null) {
             this.kind = kind;
         }
@@ -98,6 +117,13 @@ public class Category {
         }
         if (active != null) {
             this.active = active;
+        }
+        if (eventDate != null) {
+            this.eventDate = eventDate;
+        }
+        // 선물 탭으로 옮겨진 카테고리에는 행사일이 남아 있으면 안 된다.
+        if (!this.kind.isEvent()) {
+            this.eventDate = null;
         }
     }
 }

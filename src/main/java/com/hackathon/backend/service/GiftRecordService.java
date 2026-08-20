@@ -49,6 +49,7 @@ public class GiftRecordService {
 
     private final GiftRecordRepository giftRecordRepository;
     private final ReminderTaskRepository reminderTaskRepository;
+    private final GoogleCalendarService googleCalendarService;
     private final UserRepository userRepository;
     private final PersonService personService;
     private final CategoryService categoryService;
@@ -66,6 +67,7 @@ public class GiftRecordService {
                              UserRepository userRepository, PersonService personService,
                              CategoryService categoryService, S3PresignService s3PresignService,
                              AiExtractionClient aiExtractionClient,
+                             GoogleCalendarService googleCalendarService,
                              @Value("${ai.service.pre-request-delay-ms:15000}") long preRequestDelayMs) {
         this.giftRecordRepository = giftRecordRepository;
         this.reminderTaskRepository = reminderTaskRepository;
@@ -74,6 +76,7 @@ public class GiftRecordService {
         this.categoryService = categoryService;
         this.s3PresignService = s3PresignService;
         this.aiExtractionClient = aiExtractionClient;
+        this.googleCalendarService = googleCalendarService;
         this.preRequestDelayMs = preRequestDelayMs;
     }
 
@@ -256,7 +259,10 @@ public class GiftRecordService {
         return GiftRecordResponse.from(record, imageUrl);
     }
 
-    /** reminderDate가 있으면 ReminderTask를 생성/갱신하고, 없어졌으면 제거한다 (기록 1건 : 알림 1건). */
+    /**
+     * reminderDate가 있으면 ReminderTask를 생성/갱신하고, 없어졌으면 제거한다 (기록 1건 : 알림 1건).
+     * 구글 캘린더를 연동한 사용자면 같은 답례일자로 실제 일정까지 등록한다.
+     */
     private void syncReminder(User user, GiftRecord record) {
         LocalDate reminderDate = record.getReminderDate();
         ReminderTask existing = reminderTaskRepository.findByGiftRecord_Id(record.getId()).orElse(null);
@@ -267,11 +273,22 @@ public class GiftRecordService {
             }
             return;
         }
+        ReminderTask reminder;
+        boolean dateChanged;
         if (existing == null) {
-            reminderTaskRepository.save(new ReminderTask(user, record.getPerson(), record, reminderDate));
-            return;
+            reminder = reminderTaskRepository.save(new ReminderTask(user, record.getPerson(), record, reminderDate));
+            dateChanged = true;
+        } else {
+            // reschedule이 scheduledAt을 덮어쓰므로 비교는 반드시 그 전에 해야 한다.
+            dateChanged = !reminderDate.equals(existing.getScheduledAt());
+            existing.reschedule(record.getPerson(), reminderDate);
+            reminder = existing;
         }
-        existing.reschedule(record.getPerson(), reminderDate);
+        // 구글 일정은 아직 안 만들어졌거나 날짜가 실제로 바뀐 경우에만 건드린다.
+        // 저장할 때마다 부르면 메모만 고쳐도 AI가 일정을 새로 만들어 캘린더에 중복이 쌓인다.
+        if (dateChanged || reminder.getGoogleEventId() == null) {
+            googleCalendarService.syncEvent(user, record, reminder);
+        }
     }
 
     /** sort=latest(기본, 받은 날짜 최신순) / oldest / amount / created */

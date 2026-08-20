@@ -6,6 +6,11 @@ spring:
     name: backend
   profiles:
     active: local
+  # 시크릿은 이 파일에 적지 않는다(커밋되면 그대로 유출된다).
+  # config/secrets.yml은 .gitignore에 걸려 있고, optional이라 파일이 없으면 무시된다.
+  # 배포 서버에는 이 파일을 두지 말고 아래 각 항목의 환경변수를 채울 것.
+  config:
+    import: optional:file:./config/secrets.yml
   jpa:
     show-sql: true
     properties:
@@ -13,7 +18,7 @@ spring:
         format_sql: true
 
 jwt:
-  secret: ${JWT_SECRET:hackathon-demo-secret-key-please-change-before-production-use-1234567890}
+  secret: ${JWT_SECRET:}
   access-token-expiration-ms: 43200000   # 12h
   refresh-token-expiration-ms: 604800000 # 7d
 
@@ -24,11 +29,20 @@ aws:
 
 ai:
   service:
-    url: ${AI_SERVICE_URL:https://unfreeze-grab-nintendo.ngrok-free.dev}
-    api-key: ${AI_SERVICE_API_KEY:local-development-key}
+    url: ${AI_SERVICE_URL:}
+    api-key: ${AI_SERVICE_API_KEY:}
     timeout-ms: ${AI_SERVICE_TIMEOUT_MS:60000}
-    pre-request-delay-ms: ${AI_PRE_REQUEST_DELAY_MS:4000}
+    pre-request-delay-ms: ${AI_PRE_REQUEST_DELAY_MS:5000}
 
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+google:
+  oauth:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:8080/api/integrations/google/callback}
+    frontend-redirect-uri: ${GOOGLE_FRONTEND_REDIRECT_URI:http://localhost:5174/mypage}
+    scope: ${GOOGLE_OAUTH_SCOPE:https://www.googleapis.com/auth/calendar.events email}
+    timeout-ms: ${GOOGLE_OAUTH_TIMEOUT_MS:10000}
