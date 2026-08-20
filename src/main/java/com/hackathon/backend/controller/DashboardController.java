@@ -29,7 +29,10 @@ public class DashboardController {
                     + "value·detail 문자열까지 서버가 완성해두어 그대로 출력하면 된다. "
                     + "(2) agentInsight — '마음 에이전트가 발견했어요' 카드. 다가오는 생일과 답례일 중 더 가까운 하나를 골라 "
                     + "제목/본문/캘린더 위젯 라벨까지 만들어준다. 해당 없으면 null이므로 카드를 숨기면 된다. "
-                    + "(3) recentRecords — 최근 받은 마음(기본 4건). (4) recommendations — 선물 추천(기본 3건, agentInsight 대상 기준)."
+                    + "(3) recentRecords — 최근 받은 마음(기본 4건). "
+                    + "(4) recommendations — 선물 추천. 가장 가까운 대상 한 명에 대한 그룹 하나이며 그 안에 선물이 기본 3건 들어 있다. "
+                    + "이 응답을 만드는 동안 서버가 '다시 추천받기'용 다음 세트를 백그라운드에서 미리 만들어 두므로, "
+                    + "화면에서 GET /api/recommendations?refresh=true 를 부르면 대개 즉시 새 추천이 나온다."
     )
     @GetMapping
     public ApiResponse<DashboardResponse> get(

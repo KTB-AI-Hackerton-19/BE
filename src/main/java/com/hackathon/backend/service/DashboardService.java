@@ -30,12 +30,13 @@ public class DashboardService {
     private static final int DEFAULT_RECOMMENDATION_LIMIT = 3;
 
     /**
-     * 홈에서 내려줄 추천 그룹(사람) 수 상한.
+     * 홈에서 내려줄 추천 그룹(사람) 수 상한 — <b>한 명</b>.
      *
-     * <p>그룹마다 AI를 한 번씩 부르므로 상한이 없으면 같은 날짜에 5명이 몰렸을 때 홈 진입이 20초를 넘는다.
-     * 전체가 필요하면 화면에서 {@code GET /api/recommendations}를 따로 부르면 된다.</p>
+     * <p>그룹마다 AI를 한 번씩 부르므로 상한이 없으면 같은 날짜에 여러 명이 몰렸을 때 홈 진입이 그만큼 느려진다.
+     * 화면도 "가장 가까운 한 명에게 무엇을 줄까"를 보여주는 카드 3장이라 한 명이면 충분하다.
+     * 같은 날짜의 나머지 사람까지 필요하면 화면에서 {@code GET /api/recommendations}를 따로 부르면 된다.</p>
      */
-    private static final int MAX_DASHBOARD_RECOMMENDATION_GROUPS = 2;
+    private static final int MAX_DASHBOARD_RECOMMENDATION_GROUPS = 1;
     private static final String[] MONTH_LABELS =
             {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
 

@@ -6,6 +6,8 @@ import com.hackathon.backend.client.AiRecommendationClient;
 import com.hackathon.backend.domain.Category;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.Relationship;
+import com.hackathon.backend.domain.RecommendationSlot;
 import com.hackathon.backend.domain.RecommendationTag;
 import com.hackathon.backend.domain.RecommendedGift;
 import com.hackathon.backend.domain.ReminderStatus;
@@ -31,10 +33,15 @@ import java.util.Arrays;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 선물 추천. AI 서비스가 없으면 {@link AiRecommendationClient}가 더미로 폴백하므로 프론트는 지금 바로 붙일 수 있다.
  * 생성된 추천은 {@code recommended_gifts}에 저장해두고 같은 대상에 대해 재사용하며, refresh=true면 새로 생성한다.
+ * 다만 그 자리에서 AI를 부르면 버튼이 몇 초간 멈춰 보이므로, 화면을 그릴 때마다 다음 세트를
+ * {@link RecommendationSlot#NEXT} 자리에 미리 만들어 두고 refresh 때는 그걸 승격시켜 즉시 응답한다
+ * ({@link RecommendationPrefetcher}).
  * 대상 인물은 사용자가 지정하지 않고, 답례 알림(reminderDate)이 가장 가까운 날짜에 있는 사람들을 자동 선정한다.
  */
 @Service
@@ -59,12 +66,14 @@ public class RecommendationService {
     private final ReminderTaskRepository reminderTaskRepository;
     private final CategoryRepository categoryRepository;
     private final AiRecommendationClient aiRecommendationClient;
+    private final RecommendationPrefetcher prefetcher;
 
     public RecommendationService(RecommendedGiftRepository recommendedGiftRepository, PersonRepository personRepository,
                                  GiftRecordRepository giftRecordRepository, UserRepository userRepository,
                                  ReminderTaskRepository reminderTaskRepository,
                                  CategoryRepository categoryRepository,
-                                 AiRecommendationClient aiRecommendationClient) {
+                                 AiRecommendationClient aiRecommendationClient,
+                                 RecommendationPrefetcher prefetcher) {
         this.recommendedGiftRepository = recommendedGiftRepository;
         this.personRepository = personRepository;
         this.giftRecordRepository = giftRecordRepository;
@@ -72,6 +81,7 @@ public class RecommendationService {
         this.reminderTaskRepository = reminderTaskRepository;
         this.categoryRepository = categoryRepository;
         this.aiRecommendationClient = aiRecommendationClient;
+        this.prefetcher = prefetcher;
     }
 
     /**
@@ -103,13 +113,17 @@ public class RecommendationService {
             List<RecommendationResponse> general = recommendFor(user, username, null, null, size, refresh).stream()
                     .map(RecommendationResponse::from)
                     .toList();
+            schedulePrefetch(username, List.of(new PrefetchTarget(null, null)), size);
             return List.of(new PersonRecommendationResponse(null, null, null, null, null, general));
         }
 
         LocalDate nearestDate = occasions.getFirst().date();
-        return occasions.stream()
+        List<Occasion> targets = occasions.stream()
                 .filter(occasion -> occasion.date().equals(nearestDate))
                 .limit(maxGroups == NO_GROUP_LIMIT ? Long.MAX_VALUE : Math.max(maxGroups, 1))
+                .toList();
+
+        List<PersonRecommendationResponse> groups = targets.stream()
                 .map(occasion -> new PersonRecommendationResponse(
                         occasion.person().getId(),
                         occasion.person().getName(),
@@ -120,6 +134,61 @@ public class RecommendationService {
                                 .map(RecommendationResponse::from)
                                 .toList()))
                 .toList();
+
+        schedulePrefetch(username,
+                targets.stream().map(o -> new PrefetchTarget(o.person().getId(), o.event())).toList(),
+                size);
+        return groups;
+    }
+
+    /** 미리받기 대상 하나. 스레드를 넘어가므로 엔티티가 아니라 식별자만 들고 간다. */
+    private record PrefetchTarget(Long personId, String event) {
+    }
+
+    /**
+     * 응답을 내려보낸 뒤 다음 세트를 백그라운드에서 만들어 둔다.
+     *
+     * <p>커밋 이후에 띄우는 이유는, refresh로 NEXT를 CURRENT로 승격시킨 변경이 아직 커밋되지 않은 상태에서
+     * 미리받기가 돌면 "NEXT가 아직 차 있다"고 보고 그냥 돌아가 버리기 때문이다. 그러면 다음 버튼이 다시 느려진다.</p>
+     */
+    private void schedulePrefetch(String username, List<PrefetchTarget> targets, int size) {
+        Runnable task = () -> targets.forEach(
+                target -> prefetcher.prefetch(username, target.personId(), target.event(), size));
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    task.run();
+                }
+            });
+        } else {
+            task.run();
+        }
+    }
+
+    /**
+     * 다음 '다시 추천받기'에 쓸 세트를 {@link RecommendationSlot#NEXT} 자리에 만들어 둔다.
+     * 백그라운드 스레드에서 호출되므로 SecurityContext에 기대지 않고 username을 직접 받는다.
+     */
+    @Transactional
+    public void prepareNext(String username, Long personId, String event, int size) {
+        List<RecommendedGift> waiting = findCached(username, personId, RecommendationSlot.NEXT);
+        if (waiting.size() >= size) {
+            return;   // 이미 대기 중인 세트가 있으면 AI를 또 부르지 않는다
+        }
+
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+        Person person = personId == null ? null
+                : personRepository.findByIdAndUser_Username(personId, username).orElse(null);
+        if (personId != null && person == null) {
+            return;   // 미리받기를 준비하는 사이에 사람이 지워졌다
+        }
+
+        recommendedGiftRepository.deleteAll(waiting);
+        recommendedGiftRepository.flush();
+        generate(user, username, person, event, size, RecommendationSlot.NEXT);
     }
 
     /**
@@ -185,9 +254,11 @@ public class RecommendationService {
                         .orElseThrow(() -> new CustomException(ErrorCode.PERSON_NOT_FOUND));
 
         int size = (limit == null || limit <= 0) ? DEFAULT_LIMIT : Math.min(limit, 10);
-        return recommendFor(user, username, person, null, size, refresh).stream()
+        List<RecommendationResponse> gifts = recommendFor(user, username, person, null, size, refresh).stream()
                 .map(RecommendationResponse::from)
                 .toList();
+        schedulePrefetch(username, List.of(new PrefetchTarget(personId, null)), size);
+        return gifts;
     }
 
     /**
@@ -197,27 +268,50 @@ public class RecommendationService {
      */
     private List<RecommendedGift> recommendFor(User user, String username, Person person, String event,
                                                int size, boolean refresh) {
-        List<RecommendedGift> cached = findCached(username, person);
-        if (!refresh && !cached.isEmpty()) {
-            return cached.size() > size ? cached.subList(0, size) : cached;
+        Long personId = person == null ? null : person.getId();
+        List<RecommendedGift> current = findCached(username, personId, RecommendationSlot.CURRENT);
+
+        if (!refresh && !current.isEmpty()) {
+            return trim(current, size);
         }
 
-        recommendedGiftRepository.deleteAll(cached);
-        recommendedGiftRepository.flush();
+        if (refresh) {
+            // 미리 받아둔 세트가 있으면 AI를 부르지 않고 그대로 올린다 — 버튼이 즉시 반응하는 지점이다.
+            List<RecommendedGift> waiting = findCached(username, personId, RecommendationSlot.NEXT);
+            if (!waiting.isEmpty()) {
+                recommendedGiftRepository.deleteAll(current);
+                recommendedGiftRepository.flush();
+                waiting.forEach(RecommendedGift::promote);
+                return trim(waiting, size);
+            }
+        }
 
+        recommendedGiftRepository.deleteAll(current);
+        recommendedGiftRepository.flush();
+        return generate(user, username, person, event, size, RecommendationSlot.CURRENT);
+    }
+
+    /** AI를 실제로 불러 세트를 만들어 저장한다. */
+    private List<RecommendedGift> generate(User user, String username, Person person, String event,
+                                           int size, RecommendationSlot slot) {
         List<AiRecommendResponse.Item> items =
                 aiRecommendationClient.recommend(buildRequest(username, person, event), size);
 
         return recommendedGiftRepository.saveAll(
                 java.util.stream.IntStream.range(0, Math.min(items.size(), size))
-                        .mapToObj(i -> toEntity(user, person, items.get(i), i))
+                        .mapToObj(i -> toEntity(user, person, items.get(i), i, slot))
                         .toList());
     }
 
-    private List<RecommendedGift> findCached(String username, Person person) {
-        return person == null
-                ? recommendedGiftRepository.findByUser_UsernameAndPersonIsNullOrderByDisplayOrderAsc(username)
-                : recommendedGiftRepository.findByUser_UsernameAndPerson_IdOrderByDisplayOrderAsc(username, person.getId());
+    private List<RecommendedGift> trim(List<RecommendedGift> gifts, int size) {
+        return gifts.size() > size ? gifts.subList(0, size) : gifts;
+    }
+
+    private List<RecommendedGift> findCached(String username, Long personId, RecommendationSlot slot) {
+        return personId == null
+                ? recommendedGiftRepository.findByUser_UsernameAndPersonIsNullAndSlotOrderByDisplayOrderAsc(username, slot)
+                : recommendedGiftRepository.findByUser_UsernameAndPerson_IdAndSlotOrderByDisplayOrderAsc(
+                        username, personId, slot);
     }
 
     /**
@@ -228,6 +322,12 @@ public class RecommendationService {
      *
      * <p>기준이 되는 선물은 <b>가장 최근에 받은 것</b> 하나다. AI가 여러 건을 받지 않기 때문이고,
      * 답례는 보통 마지막으로 받은 마음에 대해 하므로 최근 것이 맞다.</p>
+     *
+     * <p><b>{@code categories}는 보내지 않는다.</b> 이 필드는 "지정하면 그 안에서만 추천"이라
+     * 받은 선물의 카테고리 하나를 넣으면 AI가 그 카테고리 하나짜리 응답만 주고, 거기 딸린
+     * 예시 개수가 그대로 카드 수 상한이 된다(실제로 향수 → '패션·잡화' 하나 → 카드 2장으로 잘렸다).
+     * 받은 게 향수라고 답례까지 향수 계열로 묶을 이유도 없고, "받은 것과 비슷한 부담"은
+     * {@code gift_name}·{@code gift_price}·예산으로 이미 전달된다.</p>
      */
     private AiRecommendRequest buildRequest(String username, Person person, String event) {
         List<GiftRecord> records = person == null
@@ -235,7 +335,6 @@ public class RecommendationService {
                 : giftRecordRepository.findByUser_UsernameAndPerson_IdOrderByReceivedDateDescIdDesc(username, person.getId());
 
         GiftRecord latest = records.isEmpty() ? null : records.getFirst();
-        Category category = latest != null ? latest.getCategory() : null;
         Integer amount = latest != null ? latest.getAmount() : null;
 
         return new AiRecommendRequest(
@@ -243,11 +342,11 @@ public class RecommendationService {
                 genderOf(person),
                 budgetOf(amount, BUDGET_MIN_RATIO),
                 budgetOf(amount, BUDGET_MAX_RATIO),
-                category != null ? List.of(category.getName()) : null,
+                null,   // categories — 위 주석 참고. 후보를 좁히면 추천 카드가 모자란다.
                 latest != null ? latest.getGiftName() : null,
                 amount,
                 person != null ? person.getName() : null,
-                person != null ? person.getRelationship() : null,
+                Relationship.labelOf(person != null ? person.getRelationship() : null),
                 // 생일이면 그 사실을 AI에 알린다. 아니면 받은 기록의 이유를 그대로 쓴다.
                 event != null ? event : (latest != null ? latest.getOccasion() : null),
                 interestsOf(person));
@@ -256,6 +355,10 @@ public class RecommendationService {
     /** 생일이 있어야 나이를 계산한다. 없으면 보내지 않는다(추측하지 않는다). */
     private Integer ageOf(Person person) {
         if (person == null || person.getBirthday() == null) {
+            return null;
+        }
+        // 생일이 아직 안 지난 연도(=미래 날짜)면 Period가 0년으로 나와 "0살"이 나간다. 모르면 안 보낸다.
+        if (person.getBirthday().isAfter(LocalDate.now())) {
             return null;
         }
         int age = Period.between(person.getBirthday(), LocalDate.now()).getYears();
@@ -295,7 +398,8 @@ public class RecommendationService {
         return interests.isEmpty() ? null : interests;
     }
 
-    private RecommendedGift toEntity(User user, Person person, AiRecommendResponse.Item item, int order) {
+    private RecommendedGift toEntity(User user, Person person, AiRecommendResponse.Item item, int order,
+                                     RecommendationSlot slot) {
         String emoji = (item.emoji() == null || item.emoji().isBlank())
                 ? emojiFor(user.getUsername(), item.aiCategory())
                 : item.emoji();
@@ -308,7 +412,8 @@ public class RecommendationService {
                 item.reason(),
                 item.productUrl(),
                 item.thankYouMessage(),
-                order);
+                order,
+                slot);
     }
 
     /**

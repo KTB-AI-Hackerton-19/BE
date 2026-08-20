@@ -20,7 +20,7 @@ import lombok.NoArgsConstructor;
 /** AI가 생성한 선물 추천 후보. 홈 화면 "이런 선물은 어때요?" 카드 한 장에 대응. */
 @Entity
 @Table(name = "recommended_gifts", indexes = {
-        @Index(name = "idx_recommendation_user_person", columnList = "user_id, person_id")
+        @Index(name = "idx_recommendation_user_person", columnList = "user_id, person_id, slot")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -73,12 +73,17 @@ public class RecommendedGift {
     @Column(nullable = false)
     private Integer displayOrder;
 
+    /** 지금 보여주는 세트인지, 미리 받아둔 다음 세트인지. */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private RecommendationSlot slot;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
     public RecommendedGift(User user, Person person, String emoji, String name, Integer amount,
                            RecommendationTag tag, String reason, String productUrl, String thankYouMessage,
-                           Integer displayOrder) {
+                           Integer displayOrder, RecommendationSlot slot) {
         this.user = user;
         this.person = person;
         this.emoji = emoji;
@@ -89,6 +94,12 @@ public class RecommendedGift {
         this.productUrl = productUrl;
         this.thankYouMessage = thankYouMessage;
         this.displayOrder = displayOrder;
+        this.slot = slot;
         this.createdAt = LocalDateTime.now();
+    }
+
+    /** 미리 받아둔 세트를 화면에 보이는 세트로 올린다. */
+    public void promote() {
+        this.slot = RecommendationSlot.CURRENT;
     }
 }

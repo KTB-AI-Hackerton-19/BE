@@ -1,5 +1,6 @@
 package com.hackathon.backend.repository;
 
+import com.hackathon.backend.domain.RecommendationSlot;
 import com.hackathon.backend.domain.RecommendedGift;
 import java.util.List;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -8,10 +9,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface RecommendedGiftRepository extends JpaRepository<RecommendedGift, Long> {
 
     @EntityGraph(attributePaths = {"person"})
-    List<RecommendedGift> findByUser_UsernameAndPerson_IdOrderByDisplayOrderAsc(String username, Long personId);
+    List<RecommendedGift> findByUser_UsernameAndPerson_IdAndSlotOrderByDisplayOrderAsc(
+            String username, Long personId, RecommendationSlot slot);
 
     @EntityGraph(attributePaths = {"person"})
-    List<RecommendedGift> findByUser_UsernameAndPersonIsNullOrderByDisplayOrderAsc(String username);
+    List<RecommendedGift> findByUser_UsernameAndPersonIsNullAndSlotOrderByDisplayOrderAsc(
+            String username, RecommendationSlot slot);
 
     void deleteByUser_UsernameAndPerson_Id(String username, Long personId);
 
