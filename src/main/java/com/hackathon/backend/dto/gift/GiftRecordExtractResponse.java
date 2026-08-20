@@ -1,7 +1,6 @@
 package com.hackathon.backend.dto.gift;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
-import com.hackathon.backend.dto.category.CategoryResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
@@ -20,8 +19,7 @@ import java.util.List;
  *   "personCount": 3,
  *   "multiple": true,
  *   "records": [ {...}, {...}, {...} ],
- *   "eventCategory": { "id": 9, "name": "결혼식", "kind": "CELEBRATION", "eventDate": "2026-08-15", ... },
- *   "eventCategoryCreated": true
+ *   "eventCategory": { "name": "WEDDING", "label": "결혼", "group": "CELEBRATION", ... }
  * }
  * </pre>
  */
@@ -42,23 +40,16 @@ public record GiftRecordExtractResponse(
                 + "PATCH /api/gift-records/{id}로 하나씩 확정하면 된다")
         List<GiftRecordResponse> records,
 
-        @Schema(description = "경조사로 판정됐을 때 이 기록들이 묶인 경조사 탭의 이벤트(카테고리). "
-                + "경조사가 아니면 null이다. 이미 같은 이름의 이벤트가 있으면 그것을 그대로 쓴다")
-        CategoryResponse eventCategory,
-
-        @Schema(description = "eventCategory가 이번 요청에서 새로 만들어졌으면 true, 기존 것을 재사용했으면 false",
-                example = "true")
-        boolean eventCategoryCreated
+        @Schema(description = "경조사로 판정됐을 때 이 기록들의 유형(고정 7종 중 하나). 경조사가 아니면 null이다")
+        EventCategoryResponse eventCategory
 ) {
 
-    public static GiftRecordExtractResponse of(List<GiftRecordResponse> records, CategoryResponse eventCategory,
-                                               boolean eventCategoryCreated) {
+    public static GiftRecordExtractResponse of(List<GiftRecordResponse> records, EventCategoryResponse eventCategory) {
         return new GiftRecordExtractResponse(
                 records.isEmpty() ? null : records.get(0),
                 records.size(),
                 records.size() > 1,
                 records,
-                eventCategory,
-                eventCategoryCreated);
+                eventCategory);
     }
 }

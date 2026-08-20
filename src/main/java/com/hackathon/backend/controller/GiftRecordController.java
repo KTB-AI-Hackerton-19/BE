@@ -3,6 +3,7 @@ package com.hackathon.backend.controller;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.dto.ApiResponse;
 import com.hackathon.backend.dto.PageResponse;
+import com.hackathon.backend.dto.gift.EventCategoryResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
@@ -15,6 +16,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
+import java.util.List;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -50,8 +52,8 @@ public class GiftRecordController {
             @Parameter(description = "특정 사람이 준 것만 보기", example = "3") @RequestParam(required = false) Long personId,
             @Parameter(description = "감사 완료 여부 필터 (true: 감사 완료만, false: 확인 필요만)") @RequestParam(required = false) Boolean thanked,
             @Parameter(description = "상태 필터. 생략하면 DRAFT/CONFIRMED 모두 조회") @RequestParam(required = false) GiftRecordStatus status,
-            @Parameter(description = "분류 필터. EVENT(경조사 전체) / GIFT(선물) / CELEBRATION(경사) / CONDOLENCE(조사). "
-                    + "한글(경조사·선물·경사·조사)도 허용. 생략하면 전체", example = "EVENT")
+            @Parameter(description = "분류 필터. EVENT(경조사 전체) / GIFT(선물) / CELEBRATION(경사) / CONDOLENCE(조사) / "
+                    + "구체 유형(예: 결혼, WEDDING). 한글도 허용. 생략하면 전체", example = "EVENT")
             @RequestParam(required = false) String kind,
             @Parameter(description = "받은 날짜 시작 (이 날짜 포함)", example = "2026-08-01")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
@@ -99,14 +101,23 @@ public class GiftRecordController {
                     + "**사진에서 여러 명이 나오면 사람 수만큼 DRAFT가 만들어져 records에 전부 담긴다.** "
                     + "personCount가 사람 수, multiple이 2명 이상 여부다. 1명이면 records 원소가 1개이고, "
                     + "첫 번째 기록의 필드(person/date/occasion/gift/category/price ...)는 예전처럼 응답 최상위에도 그대로 있다.\n\n"
-                    + "AI 값이 경조사(결혼식·장례식 등)로 판정되면 그 사진의 사람 전원이 경조사 탭의 같은 이벤트로 묶이고, "
-                    + "그 이벤트가 eventCategory로 함께 내려간다 — 같은 이름의 이벤트가 이미 있으면 새로 만들지 않고 재사용하며 "
-                    + "(eventCategoryCreated=false), 새로 만들었으면 true다.\n\n"
+                    + "AI 값이 경조사(결혼식·장례식 등)로 판정되면 그 사진의 사람 전원이 같은 경조사 유형(고정 7종 중 하나)으로 "
+                    + "묶이고, 그 유형이 응답의 eventCategory로 함께 내려간다.\n\n"
                     + "AI 서비스가 아직 없으면(AI_SERVICE_URL 미설정) 하드코딩된 더미 결과 1건을 반환하므로 지금도 전체 흐름을 테스트할 수 있다."
     )
     @PostMapping("/extract")
     public ApiResponse<GiftRecordExtractResponse> extract(@Valid @RequestBody GiftRecordExtractRequest request) {
         return ApiResponse.success(giftRecordService.extract(request));
+    }
+
+    @Operation(
+            summary = "경조사 유형 목록",
+            description = "기록 모달에서 recordType=EVENT를 고를 때 쓰는 eventCategory select 옵션. "
+                    + "선물 카테고리와 달리 고정 7종이라 추가/삭제 API가 없다."
+    )
+    @GetMapping("/event-categories")
+    public ApiResponse<List<EventCategoryResponse>> eventCategories() {
+        return ApiResponse.success(giftRecordService.listEventCategories());
     }
 
     @Operation(

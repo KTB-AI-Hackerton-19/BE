@@ -1,6 +1,6 @@
 package com.hackathon.backend.client;
 
-import com.hackathon.backend.domain.GiftKind;
+import com.hackathon.backend.domain.EventCategory;
 import com.hackathon.backend.exception.CustomException;
 import com.hackathon.backend.exception.ErrorCode;
 import com.hackathon.backend.support.EventClassifier;
@@ -118,20 +118,20 @@ public class AiExtractionClient {
                 eventName = p.event();
             }
         }
-        GiftKind kind = EventClassifier.classify(signals.toString());
-        if (!kind.isEvent()) {
+        EventCategory category = EventClassifier.classify(signals.toString());
+        if (category == null) {
             // 경조사명이 비어 있어도 선물명이 "부조금"이면 경조사다. 이 경우만 선물명을 본다.
-            kind = EventClassifier.classifyGiftName(giftNames.toString());
-            if (kind.isEvent() && eventName == null) {
-                // 이벤트 이름이 없으면 "경사" 같은 라벨보다 "부조금"이 카드에 낫다. 사용자가 나중에 바꾸면 된다.
+            category = EventClassifier.classifyGiftName(giftNames.toString());
+            if (category != null && eventName == null) {
+                // 이벤트 이름이 없으면 유형 라벨보다 "부조금"이 카드에 낫다. 사용자가 나중에 바꾸면 된다.
                 eventName = payloads.getFirst().giftName();
             }
         }
-        log.info("AI 분석 완료 — 사람 {}명, 분류 {}{}", results.size(), kind,
-                kind.isEvent() ? " (경조사: %s)".formatted(EventClassifier.eventName(kind, eventName)) : "");
+        log.info("AI 분석 완료 — 사람 {}명, 분류 {}{}", results.size(), category,
+                category != null ? " (경조사: %s)".formatted(EventClassifier.eventName(category, eventName)) : "");
 
-        return new AiExtractionBatch(results, kind,
-                kind.isEvent() ? EventClassifier.eventName(kind, eventName) : null, eventDate, false, null);
+        return new AiExtractionBatch(results, category,
+                category != null ? EventClassifier.eventName(category, eventName) : null, eventDate, false, null);
     }
 
     private String nullToEmpty(String value) {
@@ -160,6 +160,6 @@ public class AiExtractionClient {
         AiExtractionResult dummy = new AiExtractionResult(
                 "김민수", "친한 친구", LocalDate.now(), "내 생일",
                 "스타벅스 케이크", "디저트", 35000, null, null, null, null, null);
-        return new AiExtractionBatch(List.of(dummy), GiftKind.GIFT, null, null, true, reason);
+        return new AiExtractionBatch(List.of(dummy), null, null, null, true, reason);
     }
 }

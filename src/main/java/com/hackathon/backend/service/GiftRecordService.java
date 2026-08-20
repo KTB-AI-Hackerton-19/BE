@@ -4,16 +4,18 @@ import com.hackathon.backend.client.AiExtractionBatch;
 import com.hackathon.backend.client.AiExtractionClient;
 import com.hackathon.backend.client.AiExtractionResult;
 import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.domain.EventCategory;
+import com.hackathon.backend.domain.EventGroup;
 import com.hackathon.backend.domain.Gender;
-import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.RecordType;
 import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.domain.ReminderTask;
 import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.PageResponse;
-import com.hackathon.backend.dto.category.CategoryResponse;
+import com.hackathon.backend.dto.gift.EventCategoryResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
@@ -28,6 +30,7 @@ import com.hackathon.backend.security.SecurityUtils;
 import com.hackathon.backend.support.MoneyFormatter;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -95,10 +98,19 @@ public class GiftRecordService {
         validateDates(request.date(), request.reminderDate());
 
         Person person = personService.resolveOrCreate(user, request.personId(), request.personName(), request.relation());
-        Category category = categoryService.resolveOrFallback(request.categoryId(), request.category());
+
+        RecordType recordType = RecordType.parseOrDefault(request.recordType());
+        Category category = null;
+        EventCategory eventCategory = null;
+        if (recordType == RecordType.EVENT) {
+            eventCategory = requireEventCategory(request.eventCategory());
+        } else {
+            category = categoryService.resolveOrFallback(request.categoryId(), request.category());
+        }
 
         GiftRecord record = GiftRecord.createConfirmed(
-                user, person, category, trimToNull(request.occasion()), trimToNull(request.gift()),
+                user, person, recordType, category, eventCategory, request.eventDate(),
+                trimToNull(request.occasion()), trimToNull(request.gift()),
                 MoneyFormatter.parse(request.price()), request.date(), request.reminderDate(),
                 Boolean.TRUE.equals(request.thanked()));
         giftRecordRepository.save(record);
@@ -114,9 +126,8 @@ public class GiftRecordService {
      * 방명록, 단체 메시지 캡처) AI가 사람 목록을
      * 돌려준다. 그 길이가 곧 사람 수이고, 사람 수만큼 DRAFT를 만들어 전부 응답에 실어 보낸다.</p>
      *
-     * <p>이때 AI 값이 <b>경조사</b>로 판정되면 경조사 탭의 이벤트 카테고리를 찾아(같은 이름이 이미 있으면
-     * 그대로 쓰고, 없으면 그 자리에서 만들어) 그 사진의 사람 전원을 같은 이벤트에 묶는다. 한 결혼식에서 받은
-     * 축의금이 사람마다 다른 카테고리로 흩어지지 않게 하려는 것이다.</p>
+     * <p>이때 AI 값이 <b>경조사</b>로 판정되면 그 사진의 사람 전원이 같은 경조사 유형(고정 7종 중 하나)으로
+     * 묶인다. 경조사는 더 이상 사용자별 카테고리 row가 아니라 코드에 고정된 값이라, 따로 만들거나 찾을 필요가 없다.</p>
      */
     @Transactional
     public GiftRecordExtractResponse extract(GiftRecordExtractRequest request) {
@@ -126,17 +137,14 @@ public class GiftRecordService {
         String imageUrl = s3PresignService.createGetUrl(request.imageKey());
         awaitUpload();
         AiExtractionBatch batch = aiExtractionClient.extract(imageUrl);
-
-        // 경조사면 이 사진의 전원이 들어갈 이벤트를 먼저 확보한다. 경조사가 아니면 null(= 사람별 카테고리 분류).
-        CategoryService.EventCategory event = batch.isEvent()
-                ? categoryService.resolveOrCreateEvent(user, batch.eventName(), batch.eventKind(), batch.eventDate())
-                : null;
+        EventCategory eventCategory = batch.eventCategory();
+        RecordType recordType = eventCategory != null ? RecordType.EVENT : RecordType.GIFT;
 
         List<GiftRecordResponse> records = new ArrayList<>();
         for (AiExtractionResult result : batch.results()) {
-            Category category = event != null
-                    ? event.category()
-                    : categoryService.resolveOrFallback(null, result.categoryName());
+            Category category = recordType == RecordType.GIFT
+                    ? categoryService.resolveOrFallback(null, result.categoryName())
+                    : null;
 
             // AI가 뽑은 이름이 등록된 사람과 정확히 일치할 때만 연결한다. 없으면 null로 두고 사용자가 폼에서 고른다.
             Person person = personService.findByExactName(user, result.senderName());
@@ -146,9 +154,9 @@ public class GiftRecordService {
 
             GiftRecord record = GiftRecord.createDraft(
                     user, person, request.imageKey(), result.senderName(),
-                    Relationship.from(result.relationship()), result.age(), Gender.from(result.gender()), category,
-                    occasion, result.giftName(), result.amount(),
-                    receivedDate, receivedDate.plusDays(DEFAULT_REMINDER_OFFSET_DAYS));
+                    Relationship.from(result.relationship()), result.age(), Gender.from(result.gender()),
+                    recordType, category, eventCategory, batch.eventDate(), occasion, result.giftName(),
+                    result.amount(), receivedDate, receivedDate.plusDays(DEFAULT_REMINDER_OFFSET_DAYS));
             giftRecordRepository.save(record);
 
             // AI가 아니라 더미로 채워졌으면 응답에 그대로 실어 보낸다(로그만으로는 프론트가 알 수 없다).
@@ -156,15 +164,10 @@ public class GiftRecordService {
             records.add(GiftRecordResponse.from(record, imageUrl, batch.fallback(), batch.fallbackReason()));
         }
 
-        log.info("AI 추출 완료 — {}명, 이벤트: {}", records.size(),
-                event != null ? event.category().getName() + (event.created() ? " (신규)" : " (기존)") : "없음");
+        log.info("AI 추출 완료 — {}명, 경조사: {}", records.size(), eventCategory != null ? eventCategory.getLabel() : "없음");
 
         return GiftRecordExtractResponse.of(
-                records,
-                event != null ? CategoryResponse.from(event.category(),
-                        giftRecordRepository.countByUser_UsernameAndCategory_Id(username, event.category().getId()))
-                        : null,
-                event != null && event.created());
+                records, eventCategory != null ? EventCategoryResponse.from(eventCategory) : null);
     }
 
     /**
@@ -197,9 +200,22 @@ public class GiftRecordService {
 
         Person person = personService.resolveOrCreateNullable(
                 user, request.personId(), request.personName(), request.relation());
-        Category category = categoryService.resolve(request.categoryId(), request.category());
 
-        record.applyUpdate(person, category, trimToNull(request.occasion()), trimToNull(request.gift()),
+        RecordType recordType = request.recordType() != null ? RecordType.parseOrDefault(request.recordType()) : null;
+        Category category = categoryService.resolve(request.categoryId(), request.category());
+        EventCategory eventCategory = EventCategory.from(request.eventCategory());
+
+        RecordType effectiveType = recordType != null ? recordType : record.getRecordType();
+        if (effectiveType == RecordType.EVENT) {
+            boolean requestedInvalidEventCategory = request.eventCategory() != null && eventCategory == null;
+            EventCategory effectiveEventCategory = eventCategory != null ? eventCategory : record.getEventCategory();
+            if (effectiveEventCategory == null || requestedInvalidEventCategory) {
+                throw new CustomException(ErrorCode.INVALID_INPUT, "경조사 유형을 정확히 선택해주세요.");
+            }
+        }
+
+        record.applyUpdate(person, recordType, category, eventCategory, request.eventDate(),
+                trimToNull(request.occasion()), trimToNull(request.gift()),
                 MoneyFormatter.parse(request.price()), request.date(), request.reminderDate(), request.thanked());
 
         if (request.confirm() == null || request.confirm()) {
@@ -242,10 +258,11 @@ public class GiftRecordService {
             resolvedCategoryId = category != null ? category.getId() : -1L; // 존재하지 않는 카테고리 → 빈 결과
         }
 
+        KindFilter kindFilter = KindFilter.parse(kind);
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100), toSort(sort));
         Page<GiftRecord> result = giftRecordRepository.search(
                 username, status, resolvedCategoryId, personId, thanked,
-                kind == null || kind.isBlank(), GiftKind.parseFilter(kind),
+                kindFilter.recordType(), kindFilter.allEventCategories(), kindFilter.eventCategories(),
                 startDate, endDate, trimToNull(personName), trimToNull(q), pageable);
 
         List<GiftRecordResponse> content = result.getContent().stream().map(r -> toResponse(r, false)).toList();
@@ -277,6 +294,11 @@ public class GiftRecordService {
                 .stream()
                 .map(r -> toResponse(r, false))
                 .toList();
+    }
+
+    /** GET /api/gift-records/event-categories — 경조사 고정 7종 전체. */
+    public List<EventCategoryResponse> listEventCategories() {
+        return Arrays.stream(EventCategory.values()).map(EventCategoryResponse::from).toList();
     }
 
     public GiftRecordResponse toResponse(GiftRecord record) {
@@ -343,6 +365,15 @@ public class GiftRecordService {
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
     }
 
+    /** 경조사는 고정 7종만 허용한다 — 매칭 안 되면 "기타"로 조용히 넘기지 않고 바로 실패시킨다. */
+    private EventCategory requireEventCategory(String raw) {
+        EventCategory eventCategory = EventCategory.from(raw);
+        if (eventCategory == null) {
+            throw new CustomException(ErrorCode.INVALID_INPUT, "경조사 유형을 정확히 선택해주세요.");
+        }
+        return eventCategory;
+    }
+
     /**
      * 날짜 검증. 사용자가 연도를 잘못 치면(2099, 1900) 캘린더와 통계가 통째로 망가지므로 막는다.
      *
@@ -368,5 +399,40 @@ public class GiftRecordService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * {@code kind} 쿼리 파라미터 하나를 recordType + eventCategory 필터로 바꾼다.
+     * EVENT/경조사 → 이벤트 전체, GIFT/선물 → 선물만, 경사/조사(그룹) → 그 그룹의 유형들,
+     * 구체 유형("결혼"/"WEDDING") → 그 하나만. 모르는 값이면 필터를 걸지 않는다(전체).
+     */
+    private record KindFilter(RecordType recordType, boolean allEventCategories, List<EventCategory> eventCategories) {
+
+        private static final KindFilter ALL = new KindFilter(null, true, List.of());
+
+        static KindFilter parse(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return ALL;
+            }
+            String v = raw.trim();
+            if (v.equalsIgnoreCase("EVENT") || v.equals("경조사")) {
+                return new KindFilter(RecordType.EVENT, true, List.of());
+            }
+            if (v.equalsIgnoreCase("GIFT") || v.equals("선물")) {
+                return new KindFilter(RecordType.GIFT, true, List.of());
+            }
+            EventGroup group = EventGroup.from(v);
+            if (group != null) {
+                List<EventCategory> categories = Arrays.stream(EventCategory.values())
+                        .filter(c -> c.getGroup() == group)
+                        .toList();
+                return new KindFilter(RecordType.EVENT, false, categories);
+            }
+            EventCategory single = EventCategory.from(v);
+            if (single != null) {
+                return new KindFilter(RecordType.EVENT, false, List.of(single));
+            }
+            return ALL;
+        }
     }
 }

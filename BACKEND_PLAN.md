@@ -24,24 +24,35 @@ Spring Security + JJWT / springdoc-openapi / AWS S3 SDK.
 | `reminderDate` | `GiftRecord.reminderDate` + `ReminderTask.scheduledAt` | 아래 "결정 3" 참고 |
 | `occasion` | `GiftRecord.occasion` (자유 텍스트) | 내 생일 / 프로젝트 축하 / 결혼식 … |
 | `gift` | `GiftRecord.giftName` | |
-| `category` | `Category` 엔티티 FK | 아래 "결정 1" 참고 |
+| `category` | GIFT면 `Category` 엔티티 FK, EVENT면 `EventCategory` enum | 아래 "결정 1"/"결정 1-1" 참고 |
 | `price` | `GiftRecord.amount`(정수) + 응답의 `price`(포맷 문자열) | 아래 "결정 2" 참고 |
-| `emoji` / `color` | `Category.emoji` / `Category.color`에서 파생 | 서버가 내려줌 |
+| `emoji` / `color` | GIFT면 `Category`, EVENT면 `EventCategory`에서 파생 | 서버가 내려줌 |
 | `thanked` | `GiftRecord.thanked` | 전용 토글 API 제공 |
 
-**제거한 것**: `GiftType`(CASH/PRODUCT/…), `EventType`(BIRTHDAY/WEDDING/…) enum — 디자인 어디에서도 쓰이지 않고
-`category` + `occasion`(자유 텍스트) 조합이 그 역할을 완전히 대체한다. `estimatedPriceMin/Max` 가격 범위도
-모달의 금액 입력이 단일 값이라 `amount` 하나로 합쳤다. (CLAUDE.md의 "확실히 안 쓰면 완전히 삭제" 원칙)
+**제거한 것**: `GiftType`(CASH/PRODUCT/…) enum — 디자인 어디에서도 쓰이지 않고 `category` + `occasion`(자유 텍스트)
+조합이 그 역할을 완전히 대체한다. `estimatedPriceMin/Max` 가격 범위도 모달의 금액 입력이 단일 값이라 `amount`
+하나로 합쳤다. (CLAUDE.md의 "확실히 안 쓰면 완전히 삭제" 원칙) `EventType`은 한 차례 제거했다가, 경조사가 고정된
+닫힌 목록이라는 게 분명해져 Day 2에 `EventCategory`로 다시 도입했다 — 결정 1-1 참고.
 
 ---
 
 ## 1. 주요 결정사항과 근거
 
-### 결정 1 — 카테고리는 enum이 아니라 **DB 테이블**
+### 결정 1 — 카테고리는 enum이 아니라 **DB 테이블** (단, 경조사는 예외 — 아래 "결정 1-1")
 
 Java enum으로 고정하면 카테고리 하나 추가할 때마다 코드 수정 → 재컴파일 → 재배포가 필요해 해커톤 중 기획 변경이 병목이 된다.
 그래서 `Category` 엔티티(`categories` 테이블)로 분리하고 `GiftRecord`가 FK로 참조한다.
-`emoji`, `color`도 같은 테이블에 두어 이모지·색상 매핑이 코드에 흩어지지 않게 했다.
+`emoji`, `color`도 같은 테이블에 두어 이모지·색상 매핑이 코드에 흩어지지 않게 했다. (이 아래 서술은 `Category`가
+전역 테이블이던 초기 버전 기준이라 세부는 지금과 다르다 — **선물 카테고리는 사용자별**이며 가입 시 기본 6종이
+그 사용자 것으로 복제된다. 최신 흐름은 `CategoryService`/`DemoDataInitializer` 참고.)
+
+### 결정 1-1 — 경조사는 **고정 enum**으로 예외 처리 (Day 2)
+
+선물 카테고리와 달리 경조사(결혼/출산·돌잔치/수연/취업·승진/개업·이사/장례식/제사·탈상)는 앞으로도 늘어날 일이
+거의 없는 닫힌 목록이라, 결정 1의 "재배포 없이 추가"라는 장점이 별 의미가 없다. 오히려 사용자가 자유롭게 만들게
+두면 같은 걸 "결혼식"/"결혼"/"내 결혼"처럼 제각각 이름으로 만들어 집계·필터가 흩어지는 문제가 생겼다.
+그래서 `EventCategory` 고정 7종 enum(영문 코드 + 한글 라벨 + 경사/조사 그룹 + emoji/color)으로 바꾸고,
+`GiftRecord`가 `recordType`(GIFT/EVENT)과 함께 직접 들고 있다. 자세한 건 위 ERD의 `GiftRecord` 참고.
 
 프론트는 `GET /api/categories`로 필터 칩(`'전체'`는 프론트가 앞에 붙임)과 모달 `<select>` 옵션을 그린다.
 → **카테고리를 추가해도 프론트 코드 수정이 필요 없다.**
@@ -158,7 +169,8 @@ erDiagram
 
     CATEGORY {
         bigint id PK
-        string name UK
+        bigint userId FK
+        string name UK "user_id + name UK. 선물 전용"
         string emoji
         string color
         int displayOrder
@@ -169,11 +181,16 @@ erDiagram
         bigint id PK
         bigint userId FK
         bigint personId FK
-        bigint categoryId FK
+        string recordType "GIFT / EVENT"
+        bigint categoryId FK "recordType=GIFT일 때만"
+        string eventCategory "고정 7종. recordType=EVENT일 때만"
+        date eventDate "행사일. recordType=EVENT일 때만"
         string imageKey
         string extractedSenderName
         string extractedRelationship
-        string occasion
+        integer extractedAge
+        string extractedGender
+        string occasion "recordType=GIFT일 때만"
         string giftName
         int amount
         date receivedDate
@@ -211,12 +228,20 @@ erDiagram
 |---|---|---|
 | `User` | 로그인 계정 | JWT 인증 대상, refresh token 저장 |
 | `Person` | 마음을 주고받는 상대방 | 이름으로 자동 생성됨. `birthday`는 에이전트 카드에, `memo`는 추천에 쓰임 |
-| `Category` | 선물 카테고리 마스터 | **코드가 아닌 DB row**. 추가 시 재배포 불필요 |
-| `GiftRecord` | 받은 마음 1건 | `status`로 DRAFT(AI 추출 직후)/CONFIRMED(사용자 확정) 구분 |
+| `Category` | 선물 카테고리 마스터 (사용자별) | **코드가 아닌 DB row**. 추가 시 재배포 불필요. 경조사는 여기 관여하지 않음 |
+| `GiftRecord` | 받은 마음 1건 | `status`로 DRAFT(AI 추출 직후)/CONFIRMED(사용자 확정) 구분. `recordType`으로 선물/경조사 구분 |
 | `ReminderTask` | 답례 알림 스케줄 | `GiftRecord.reminderDate`와 1:1 동기화. PENDING → SENT |
 | `RecommendedGift` | AI 선물 추천 후보 | 대상별로 캐싱, `refresh=true`면 재생성 |
 
-**enum**: `GiftRecordStatus`(DRAFT/CONFIRMED), `ReminderStatus`(PENDING/SENT),
+**선물 vs 경조사**: `GiftRecord.recordType`(`RecordType`: GIFT/EVENT)이 대분류를 결정한다. GIFT면 사용자별
+`Category`(자유 카테고리)를, EVENT면 `EventCategory`(고정 7종 — 결혼/출산·돌잔치/수연/취업·승진/개업·이사/장례식/제사·탈상,
+각각 경사/조사 그룹과 emoji/color를 코드에 고정으로 들고 있음)를 쓴다. 두 짝이 동시에 채워지는 상태가
+저장되지 않도록 `GiftRecord`가 저장 시점에 한쪽을 항상 비운다. 예전에는 경조사도 사용자가 자유롭게 만드는
+`Category` row("내 결혼식" 등, 자체 `eventDate` 보유)였는데, 경조사 유형은 고정된 것이 자연스러워 Day 2에
+`GiftRecord`가 직접 `EventCategory` + `eventDate`를 갖는 구조로 바꿨다.
+
+**enum**: `GiftRecordStatus`(DRAFT/CONFIRMED), `RecordType`(GIFT/EVENT), `EventCategory`(고정 7종),
+`ReminderStatus`(PENDING/SENT),
 `RecommendationTag`(취향 일치 / 실패 확률 낮음 / 답례 추천 — 디자인의 고정 3종이라 enum 유지, JSON에는 한글 라벨로 나감).
 
 ---
@@ -240,7 +265,7 @@ erDiagram
 |---|---|---|
 | GET | `/api/dashboard` | 홈 화면 전체 — 통계 3종 + 에이전트 카드 + 최근 마음 + 추천 (`recentLimit`, `recommendationLimit`) |
 
-### 카테고리
+### 카테고리 (선물 전용 — 경조사는 고정 enum이라 별도 CRUD가 없다)
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/api/categories` | 필터 칩 / 모달 select용 목록 (`includeInactive`, 항목마다 `recordCount` 포함) |
@@ -252,6 +277,7 @@ erDiagram
 |---|---|---|
 | GET | `/api/gift-records` | 목록 — 필터/검색/정렬/페이징 (아래 파라미터 표) |
 | GET | `/api/gift-records/{id}` | 상세 |
+| GET | `/api/gift-records/event-categories` | 경조사 고정 7종 목록 (name/label/group/emoji/color) — 기록 모달의 eventCategory select용 |
 | POST | `/api/gift-records` | 등록 (모달 저장 / 직접 등록) |
 | POST | `/api/gift-records/extract` | 이미지 AI 분석 → DRAFT 생성 |
 | PATCH | `/api/gift-records/{id}` | 부분 수정 + 확정(CONFIRMED) |
@@ -259,9 +285,13 @@ erDiagram
 | DELETE | `/api/gift-records/{id}` | 기록 + 연결된 답례 알림 삭제 |
 
 목록 파라미터: `categoryId` / `category`(이름, `'전체'`면 미적용) / `personId` / `thanked` / `status` /
+`kind`(`GIFT`/`선물`, `EVENT`/`경조사`, `CELEBRATION`/`경사`, `CONDOLENCE`/`조사`, 구체 유형명도 허용) /
 `startDate` / `endDate` / `q`(선물명·받은 이유·보낸 사람 이름 부분 일치) /
 `sort`(`latest` 기본 · `oldest` · `amount` · `created`) / `page` / `size`(최대 100).
 응답의 `totalElements`를 화면의 `"{N}개의 마음"`에 그대로 쓰면 된다.
+
+등록/수정 요청은 `recordType`(GIFT 기본 / EVENT)으로 선물·경조사를 가른다. GIFT면 `categoryId`/`category`/`occasion`을,
+EVENT면 `eventCategory`(고정 7종, 한글·영문 코드 모두 허용 — 그 외 값은 400 `INVALID_INPUT`)와 `eventDate`를 쓴다.
 
 ### 사람
 | 메서드 | 경로 | 설명 |
@@ -269,6 +299,7 @@ erDiagram
 | GET | `/api/people` | 목록 (`q` 이름 검색). `giftCount` / `latestGift` / `latestReceivedDate` / `upcomingReminderDate` 포함 |
 | GET | `/api/people/{id}` | 상세 — 요약 + 타임라인 한 번에 |
 | GET | `/api/people/{id}/gift-records` | 타임라인만 (받은 날짜 최신순) |
+| GET | `/api/people/{id}/recommendations?limit=&refresh=` | 그 사람만을 위한 선물 추천 목록 (personId 지정 조회) |
 | POST | `/api/people` | 등록 (같은 이름 있으면 갱신) |
 | PATCH | `/api/people/{id}` | 부분 수정 |
 | DELETE | `/api/people/{id}` | 남은 기록이 없을 때만 삭제 |
@@ -287,7 +318,7 @@ erDiagram
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/api/search?q=&limit=` | 상단바 통합 검색 — `people` + `records` 동시 반환 |
-| GET | `/api/recommendations?personId=&limit=&refresh=` | 선물 추천. `refresh=true`가 "다시 추천받기" |
+| GET | `/api/recommendations?limit=&refresh=` | 선물 추천. 답례일이 가장 가까운 "날짜"를 찾아 그날 답례할 사람 전원을 자동 선정하고, 사람마다 추천 선물 목록(최대 limit건)을 묶어서 반환 (대상 없으면 일반 추천 그룹 하나로 대체). `refresh=true`가 "다시 추천받기" |
 | GET | `/api/reminders?includePast=&limit=` | 답례 알림 목록 (예정일 가까운 순, `daysLeft` 포함) |
 
 ### 이미지 / 헬스체크
@@ -339,8 +370,10 @@ presigned GET URL 만료는 **900초(15분)** — AI 분석 시간보다 충분�
 }
 ```
 
-- `category`는 서버 `categories` 테이블의 이름과 매칭된다 (모르는 값이면 `기타`로 폴백).
-  현재 값: 디저트 / 꽃·식물 / 부조금 / 패션·잡화 / 상품권 / 생활용품 / 기타 (+ 나중에 추가되는 것).
+- `category`는 서버 사용자별 `categories` 테이블의 이름과 매칭된다 (모르는 값이면 `기타`로 폴백). 단 경조사로
+  판정된 경우(`EventClassifier`가 경조사명·선물명에서 결혼/장례식 등 단어를 감지)에는 `category`를 쓰지 않고
+  고정 7종 `EventCategory` 중 하나로 분류한다 — AI가 이 enum 값을 직접 알 필요는 없다(텍스트만 주면 백엔드가
+  정규화). 현재 선물 카테고리 기본값: 디저트 / 꽃·식물 / 패션·잡화 / 상품권 / 생활용품 / 기타 (+ 나중에 추가되는 것).
 - `amount`는 정수(원). 범위가 아니라 단일 추정치.
 - **값을 모르면 임의로 지어내지 말고 `null`로 보낼 것** — 사용자가 확인 폼에서 직접 채운다.
 - `confidence`는 현재 저장하지 않지만 스키마에는 유지 (나중에 "확신 낮음" 배지에 쓸 여지).
