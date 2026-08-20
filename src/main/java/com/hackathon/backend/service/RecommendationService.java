@@ -3,7 +3,7 @@ package com.hackathon.backend.service;
 import com.hackathon.backend.client.AiRecommendRequest;
 import com.hackathon.backend.client.AiRecommendResponse;
 import com.hackathon.backend.client.AiRecommendationClient;
-import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.client.ProductImageResolver;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
 import com.hackathon.backend.domain.Relationship;
@@ -17,7 +17,6 @@ import com.hackathon.backend.dto.recommendation.PersonRecommendationResponse;
 import com.hackathon.backend.dto.recommendation.RecommendationResponse;
 import com.hackathon.backend.exception.CustomException;
 import com.hackathon.backend.exception.ErrorCode;
-import com.hackathon.backend.repository.CategoryRepository;
 import com.hackathon.backend.repository.GiftRecordRepository;
 import com.hackathon.backend.repository.PersonRepository;
 import com.hackathon.backend.repository.RecommendedGiftRepository;
@@ -31,6 +30,7 @@ import java.time.LocalDate;
 import java.time.Period;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -57,30 +57,32 @@ public class RecommendationService {
     private static final double BUDGET_MIN_RATIO = 0.8;
     private static final double BUDGET_MAX_RATIO = 1.2;
     private static final int MAX_INTERESTS = 5;
-    private static final String DEFAULT_EMOJI = "🎁";
 
     private final RecommendedGiftRepository recommendedGiftRepository;
     private final PersonRepository personRepository;
     private final GiftRecordRepository giftRecordRepository;
     private final UserRepository userRepository;
     private final ReminderTaskRepository reminderTaskRepository;
-    private final CategoryRepository categoryRepository;
+    private final CategoryEmojiResolver categoryEmojiResolver;
     private final AiRecommendationClient aiRecommendationClient;
+    private final ProductImageResolver productImageResolver;
     private final RecommendationPrefetcher prefetcher;
 
     public RecommendationService(RecommendedGiftRepository recommendedGiftRepository, PersonRepository personRepository,
                                  GiftRecordRepository giftRecordRepository, UserRepository userRepository,
                                  ReminderTaskRepository reminderTaskRepository,
-                                 CategoryRepository categoryRepository,
+                                 CategoryEmojiResolver categoryEmojiResolver,
                                  AiRecommendationClient aiRecommendationClient,
+                                 ProductImageResolver productImageResolver,
                                  RecommendationPrefetcher prefetcher) {
         this.recommendedGiftRepository = recommendedGiftRepository;
         this.personRepository = personRepository;
         this.giftRecordRepository = giftRecordRepository;
         this.userRepository = userRepository;
         this.reminderTaskRepository = reminderTaskRepository;
-        this.categoryRepository = categoryRepository;
+        this.categoryEmojiResolver = categoryEmojiResolver;
         this.aiRecommendationClient = aiRecommendationClient;
+        this.productImageResolver = productImageResolver;
         this.prefetcher = prefetcher;
     }
 
@@ -291,15 +293,26 @@ public class RecommendationService {
         return generate(user, username, person, event, size, RecommendationSlot.CURRENT);
     }
 
-    /** AI를 실제로 불러 세트를 만들어 저장한다. */
+    /**
+     * AI를 실제로 불러 세트를 만들어 저장한다.
+     *
+     * <p>AI는 상품 링크만 주고 이미지 주소는 주지 않으므로, 저장 직전에 링크에서 대표 이미지를 한 번 뽑아
+     * 같이 넣어둔다. 여기서 뽑는 이유는 이 지점이 <b>추천이 새로 만들어지는 유일한 곳</b>이라서다 —
+     * 조회 때 뽑으면 캐시된 추천을 볼 때마다 쇼핑몰을 다시 두드리게 된다.</p>
+     */
     private List<RecommendedGift> generate(User user, String username, Person person, String event,
                                            int size, RecommendationSlot slot) {
         List<AiRecommendResponse.Item> items =
                 aiRecommendationClient.recommend(buildRequest(username, person, event), size);
+        List<AiRecommendResponse.Item> selected =
+                items.size() > size ? items.subList(0, size) : items;
+
+        Map<String, String> images = productImageResolver.resolveAll(
+                selected.stream().map(AiRecommendResponse.Item::productUrl).toList());
 
         return recommendedGiftRepository.saveAll(
-                java.util.stream.IntStream.range(0, Math.min(items.size(), size))
-                        .mapToObj(i -> toEntity(user, person, items.get(i), i, slot))
+                java.util.stream.IntStream.range(0, selected.size())
+                        .mapToObj(i -> toEntity(user, person, selected.get(i), images, i, slot))
                         .toList());
     }
 
@@ -398,10 +411,10 @@ public class RecommendationService {
         return interests.isEmpty() ? null : interests;
     }
 
-    private RecommendedGift toEntity(User user, Person person, AiRecommendResponse.Item item, int order,
-                                     RecommendationSlot slot) {
+    private RecommendedGift toEntity(User user, Person person, AiRecommendResponse.Item item,
+                                     Map<String, String> images, int order, RecommendationSlot slot) {
         String emoji = (item.emoji() == null || item.emoji().isBlank())
-                ? emojiFor(user.getUsername(), item.aiCategory())
+                ? categoryEmojiResolver.resolve(user.getUsername(), item.aiCategory())
                 : item.emoji();
         return new RecommendedGift(
                 user, person,
@@ -411,59 +424,10 @@ public class RecommendationService {
                 RecommendationTag.from(item.tag()),
                 item.reason(),
                 item.productUrl(),
+                item.productUrl() == null ? null : images.get(item.productUrl()),
                 item.thankYouMessage(),
                 order,
                 slot);
     }
 
-    /**
-     * AI가 준 카테고리 이름으로 우리 카테고리의 이모지를 찾는다.
-     *
-     * <p>AI는 이모지를 주지 않고, 카테고리 이름도 자기 체계를 쓴다("식품·디저트" vs 우리 "디저트").
-     * 그래서 이름이 정확히 같지 않아도 찾을 수 있게 세 단계로 본다.</p>
-     *
-     * <ol>
-     *   <li>정확히 같은 이름</li>
-     *   <li>한쪽이 다른 쪽을 포함 ("식품·디저트" ⊃ "디저트")</li>
-     *   <li>구분자(·, /, 쉼표)로 쪼갠 조각끼리 비교 ("식품·디저트" → "식품", "디저트")</li>
-     * </ol>
-     *
-     * <p>그래도 못 찾으면 기본 이모지를 쓴다. 매핑표를 하드코딩하지 않은 이유는,
-     * 사용자가 카테고리를 자유롭게 추가할 수 있어 표가 금방 낡기 때문이다.</p>
-     */
-    private String emojiFor(String username, String aiCategory) {
-        if (aiCategory == null || aiCategory.isBlank()) {
-            return DEFAULT_EMOJI;
-        }
-        String target = aiCategory.trim();
-        List<Category> categories = categoryRepository.findByUser_UsernameOrderByDisplayOrderAscIdAsc(username);
-
-        for (Category category : categories) {
-            if (category.getName().equalsIgnoreCase(target)) {
-                return orDefault(category.getEmoji());
-            }
-        }
-        for (Category category : categories) {
-            String name = category.getName();
-            if (target.contains(name) || name.contains(target)) {
-                return orDefault(category.getEmoji());
-            }
-        }
-        for (String token : target.split("[·/,]")) {
-            String piece = token.trim();
-            if (piece.isEmpty()) {
-                continue;
-            }
-            for (Category category : categories) {
-                if (category.getName().contains(piece) || piece.contains(category.getName())) {
-                    return orDefault(category.getEmoji());
-                }
-            }
-        }
-        return DEFAULT_EMOJI;
-    }
-
-    private String orDefault(String emoji) {
-        return (emoji == null || emoji.isBlank()) ? DEFAULT_EMOJI : emoji;
-    }
 }

@@ -10,11 +10,14 @@ import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
 import com.hackathon.backend.dto.gift.GiftRecordPersonLinkRequest;
 import com.hackathon.backend.dto.gift.GiftRecordPersonLinkResponse;
+import com.hackathon.backend.dto.gift.GiftRecordPrepareRequest;
+import com.hackathon.backend.dto.gift.GiftRecordPrepareResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.gift.GiftRecordThankedRequest;
 import com.hackathon.backend.dto.gift.GiftRecordUpdateRequest;
 import com.hackathon.backend.exception.CustomException;
 import com.hackathon.backend.exception.ErrorCode;
+import com.hackathon.backend.service.GiftDataAgentService;
 import com.hackathon.backend.service.GiftRecordService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -39,9 +42,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class GiftRecordController {
 
     private final GiftRecordService giftRecordService;
+    private final GiftDataAgentService giftDataAgentService;
 
-    public GiftRecordController(GiftRecordService giftRecordService) {
+    public GiftRecordController(GiftRecordService giftRecordService, GiftDataAgentService giftDataAgentService) {
         this.giftRecordService = giftRecordService;
+        this.giftDataAgentService = giftDataAgentService;
     }
 
     @Operation(
@@ -113,6 +118,23 @@ public class GiftRecordController {
     @PostMapping("/extract")
     public ApiResponse<GiftRecordExtractResponse> extract(@Valid @RequestBody GiftRecordExtractRequest request) {
         return ApiResponse.success(giftRecordService.extract(request));
+    }
+
+    @Operation(
+            summary = "AI 준비 작업 (사진 없이, 직접 입력값 기반)",
+            description = "`/extract`의 텍스트 버전. 사진 대신 **이미 입력한 값**(선물명·금액·사람·날짜)을 그대로 AI에 넘겨 "
+                    + "AI 서비스의 from-gift-data를 호출한다.\n\n"
+                    + "**아무것도 저장하지 않는다.** 마음 기록 저장은 지금처럼 `POST /api/gift-records`가 하고, "
+                    + "이 엔드포인트는 등록 화면에서 바로 보여줄 **추천 카드와 답례 메시지**를 받아오는 용도다 "
+                    + "(캘린더·알림 초안도 함께 오지만 우리는 우리 DB와 /confirm으로 처리하므로 참고값이다).\n\n"
+                    + "추천 카드 모양은 `GET /api/recommendations`의 gifts와 동일하다 — 저장하지 않으므로 id만 null이다. "
+                    + "저장된 추천 캐시도 건드리지 않아서, 등록 중에 눌러봐도 홈 화면 추천은 그대로다.\n\n"
+                    + "**이 경로는 더미로 폴백하지 않는다.** AI가 죽어 있으면 recommendations가 비고 aiError에 사유가 담긴다 "
+                    + "(연동 확인 중에 더미가 성공처럼 보이는 상황을 막기 위함)."
+    )
+    @PostMapping("/prepare")
+    public ApiResponse<GiftRecordPrepareResponse> prepare(@Valid @RequestBody GiftRecordPrepareRequest request) {
+        return ApiResponse.success(giftDataAgentService.prepare(request));
     }
 
     @Operation(

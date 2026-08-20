@@ -20,6 +20,12 @@ public record RecommendationResponse(
         @Schema(description = "실제 상품 구매 링크. AI가 상품을 찾지 못하면 null이므로 있을 때만 카드를 클릭 가능하게 만들 것",
                 example = "https://www.11st.co.kr/products/1493359734") String productUrl,
 
+        @Schema(description = "상품 대표 이미지 주소. productUrl 페이지의 og:image에서 뽑아낸 값이라 "
+                + "상품 링크가 없거나 쇼핑몰이 태그를 안 넣어두면 null이다. "
+                + "null일 때는 emoji로 카드를 그릴 것 (이미지 로드 실패에도 같은 폴백을 두면 안전하다)",
+                example = "https://cdn.011st.com/11dims/resize/600x600/quality/75/11src/product/1493359734/B.jpg")
+        String imageUrl,
+
         @Schema(description = "AI가 써준 답례 인사 문구. 추천 한 세트에 하나뿐이라 카드마다 같은 값이 들어간다 — "
                 + "화면에서는 하나만 보여주면 된다 (없으면 null)",
                 example = "민수님, 챙겨주신 마음 덕분에 큰 힘이 됐어요.") String thankYouMessage
@@ -36,6 +42,7 @@ public record RecommendationResponse(
                 gift.getTag().getLabel(),
                 gift.getReason(),
                 gift.getProductUrl(),
+                gift.getImageUrl(),
                 gift.getThankYouMessage()
         );
     }
