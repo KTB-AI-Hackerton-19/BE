@@ -1,7 +1,9 @@
 package com.hackathon.backend.service;
 
 import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.domain.EventCategory;
 import com.hackathon.backend.domain.GiftRecord;
+import com.hackathon.backend.domain.RecordType;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.domain.Person;
 import com.hackathon.backend.domain.ReminderTask;
@@ -94,22 +96,19 @@ public class CalendarService {
 
     private CalendarEventResponse toReceivedEvent(GiftRecord record) {
         Person person = record.getPerson();
-        Category category = record.getCategory();
         return new CalendarEventResponse(
                 record.getId(), TYPE_RECEIVED, record.getReceivedDate(), record.getId(),
                 person != null ? person.getId() : null,
                 person != null ? person.getName() : record.getExtractedSenderName(),
                 record.getGiftName(), record.getOccasion(),
-                category != null ? category.getName() : null,
-                category != null ? category.getEmoji() : DEFAULT_EMOJI,
-                category != null ? category.getColor() : DEFAULT_COLOR,
+                categoryLabel(record),
+                categoryEmoji(record), categoryColor(record),
                 record.getAmount(), MoneyFormatter.format(record.getAmount()), record.isThanked());
     }
 
     private CalendarEventResponse toGiveEvent(ReminderTask task) {
         Person person = task.getPerson();
         GiftRecord record = task.getGiftRecord();
-        Category category = record != null ? record.getCategory() : null;
         return new CalendarEventResponse(
                 task.getId(), TYPE_TO_GIVE, task.getScheduledAt(),
                 record != null ? record.getId() : null,
@@ -117,10 +116,38 @@ public class CalendarService {
                 person != null ? person.getName() : null,
                 record != null ? record.getGiftName() : null,
                 record != null ? record.getOccasion() : null,
-                category != null ? category.getName() : null,
+                record != null ? categoryLabel(record) : null,
                 REMINDER_EMOJI, REMINDER_COLOR,
                 record != null ? record.getAmount() : null,
                 record != null ? MoneyFormatter.format(record.getAmount()) : null,
                 record != null && record.isThanked());
+    }
+
+    /** GIFT면 카테고리 이름, EVENT면 경조사 유형 한글 라벨. */
+    private String categoryLabel(GiftRecord record) {
+        if (record.getRecordType() == RecordType.EVENT) {
+            EventCategory eventCategory = record.getEventCategory();
+            return eventCategory != null ? eventCategory.getLabel() : null;
+        }
+        Category category = record.getCategory();
+        return category != null ? category.getName() : null;
+    }
+
+    private String categoryEmoji(GiftRecord record) {
+        if (record.getRecordType() == RecordType.EVENT) {
+            EventCategory eventCategory = record.getEventCategory();
+            return eventCategory != null ? eventCategory.getEmoji() : DEFAULT_EMOJI;
+        }
+        Category category = record.getCategory();
+        return category != null ? category.getEmoji() : DEFAULT_EMOJI;
+    }
+
+    private String categoryColor(GiftRecord record) {
+        if (record.getRecordType() == RecordType.EVENT) {
+            EventCategory eventCategory = record.getEventCategory();
+            return eventCategory != null ? eventCategory.getColor() : DEFAULT_COLOR;
+        }
+        Category category = record.getCategory();
+        return category != null ? category.getColor() : DEFAULT_COLOR;
     }
 }

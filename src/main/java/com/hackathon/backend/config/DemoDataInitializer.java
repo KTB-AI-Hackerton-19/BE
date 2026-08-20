@@ -1,10 +1,11 @@
 package com.hackathon.backend.config;
 
 import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.domain.EventCategory;
 import com.hackathon.backend.domain.Gender;
-import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.RecordType;
 import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.domain.ReminderTask;
 import com.hackathon.backend.domain.User;
@@ -17,7 +18,6 @@ import com.hackathon.backend.service.CategoryService;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Random;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +26,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
@@ -41,7 +40,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * <p>날짜는 전부 <b>오늘 기준 상대값</b>으로 만든다. 고정 날짜로 박아두면 며칠만 지나도 "다가오는 일정"이
  * 전부 과거가 되어 홈 화면 에이전트 카드와 캘린더가 비어버린다.</p>
  *
- * <p>카테고리는 사용자별이라, 계정을 만든 직후 기본 7종을 그 사용자 것으로 깔고 나서 기록을 만든다.</p>
+ * <p>카테고리는 사용자별이라, 계정을 만든 직후 기본 6종을 그 사용자 것으로 깔고 나서 기록을 만든다.
+ * 경조사(결혼식·장례식)는 더 이상 카테고리 row가 아니라 {@link GiftRecord}가 {@link EventCategory}를 직접 갖는다.</p>
  */
 @Configuration
 public class DemoDataInitializer {
@@ -76,13 +76,35 @@ public class DemoDataInitializer {
     }
 
     /**
-     * 기록: 보낸 사람, 받은 날짜(오늘로부터 -N일), 받은 이유, 선물명, 카테고리, 금액,
+     * 기록: 보낸 사람, 받은 날짜(오늘로부터 -N일), 받은 이유, 선물명, 카테고리 이름, 금액,
      * 답례 알림일(오늘로부터 +N일, 없으면 null), 감사 완료 여부.
-     * 선물/경조사 구분은 카테고리가 결정하므로 여기서 따로 주지 않는다.
+     *
+     * <p>{@code eventCategory}가 있으면 경조사 기록이다 — 이때 {@code category}는 무시되고 {@code occasion}은
+     * 저장 시 GiftRecord가 알아서 비운다. 행사일은 {@link #EVENT_DATES}에서 유형별로 하나만 관리한다
+     * (같은 결혼식에서 받은 축의금이면 행사일도 같아야 하므로).</p>
      */
     private record RecordSeed(String personName, int receivedDaysAgo, String occasion, String gift,
-                              String category, int amount, Integer reminderInDays, boolean thanked) {
+                              String category, EventCategory eventCategory, int amount, Integer reminderInDays,
+                              boolean thanked) {
+        private static RecordSeed gift(String personName, int receivedDaysAgo, String occasion, String gift,
+                                       String category, int amount, Integer reminderInDays, boolean thanked) {
+            return new RecordSeed(personName, receivedDaysAgo, occasion, gift, category, null, amount,
+                    reminderInDays, thanked);
+        }
+
+        private static RecordSeed event(String personName, int receivedDaysAgo, String occasion, String gift,
+                                        EventCategory eventCategory, int amount, Integer reminderInDays,
+                                        boolean thanked) {
+            return new RecordSeed(personName, receivedDaysAgo, occasion, gift, null, eventCategory, amount,
+                    reminderInDays, thanked);
+        }
     }
+
+    /** 경조사 유형별 행사일(오늘로부터 -N일). 같은 결혼식/장례식이면 행사일도 하나로 고정돼야 한다. */
+    private static final Map<EventCategory, Integer> EVENT_DAYS_AGO = Map.of(
+            EventCategory.WEDDING, 31,
+            EventCategory.FUNERAL, 15
+    );
 
     private static final List<PersonSeed> PEOPLE = List.of(
             // 김민수는 AI 더미 응답이 뱉는 이름이라 반드시 있어야 이미지 업로드 흐름에서 자동 매칭이 보인다.
@@ -96,24 +118,24 @@ public class DemoDataInitializer {
     );
 
     private static final List<RecordSeed> RECORDS = List.of(
-            new RecordSeed("김민수", 1, "내 생일", "스타벅스 케이크", "디저트", 35000, 29, false),
-            new RecordSeed("박지영", 3, "승진 축하", "디퓨저 세트", "생활용품", 42000, 4, false),
-            new RecordSeed("이서준", 6, "집들이 답례", "무민 머그컵 세트", "생활용품", 28000, 11, false),
-            new RecordSeed("최유나", 12, "내 생일", "조말론 향수", "패션·잡화", 95000, 2, false),
-            new RecordSeed("정하늘", 18, "완주 축하", "러닝 양말 세트", "패션·잡화", 24000, 18, true),
-            new RecordSeed("한소희", 24, "그냥", "마카롱 한 박스", "디저트", 21000, 40, true),
-            new RecordSeed("윤도현", 31, "결혼 축의금", "축의금", "내 결혼식", 200000, 7, false),
-            new RecordSeed("박지영", 38, "명절 인사", "한우 선물세트", "기타", 150000, 62, true),
-            new RecordSeed("김민수", 47, "취업 축하", "교보문고 상품권", "상품권", 50000, null, true),
-            new RecordSeed("이서준", 55, "생일", "튤립 한 다발", "꽃·식물", 38000, null, true),
-            new RecordSeed("최유나", 68, "수능 응원", "핸드크림 세트", "생활용품", 19000, null, true),
-            new RecordSeed("정하늘", 82, "이사 축하", "몬스테라 화분", "꽃·식물", 45000, null, true),
-            new RecordSeed("김민수", 31, "결혼 축의금", "축의금", "내 결혼식", 100000, 7, false),
-            new RecordSeed("박지영", 31, "결혼 축의금", "축의금", "내 결혼식", 50000, 7, true),
-            new RecordSeed("최유나", 31, "결혼 축의금", "축의금", "내 결혼식", 100000, 7, false),
-            new RecordSeed("정하늘", 15, "부친상 조의금", "조의금", "아버지 장례식", 100000, 9, false),
-            new RecordSeed("한소희", 15, "부친상 조의금", "조의금", "아버지 장례식", 50000, null, true),
-            new RecordSeed("이서준", 15, "부친상 조의금", "조의금", "아버지 장례식", 50000, 9, false)
+            RecordSeed.gift("김민수", 1, "내 생일", "스타벅스 케이크", "디저트", 35000, 29, false),
+            RecordSeed.gift("박지영", 3, "승진 축하", "디퓨저 세트", "생활용품", 42000, 4, false),
+            RecordSeed.gift("이서준", 6, "집들이 답례", "무민 머그컵 세트", "생활용품", 28000, 11, false),
+            RecordSeed.gift("최유나", 12, "내 생일", "조말론 향수", "패션·잡화", 95000, 2, false),
+            RecordSeed.gift("정하늘", 18, "완주 축하", "러닝 양말 세트", "패션·잡화", 24000, 18, true),
+            RecordSeed.gift("한소희", 24, "그냥", "마카롱 한 박스", "디저트", 21000, 40, true),
+            RecordSeed.event("윤도현", 31, "결혼 축의금", "축의금", EventCategory.WEDDING, 200000, 7, false),
+            RecordSeed.gift("박지영", 38, "명절 인사", "한우 선물세트", "기타", 150000, 62, true),
+            RecordSeed.gift("김민수", 47, "취업 축하", "교보문고 상품권", "상품권", 50000, null, true),
+            RecordSeed.gift("이서준", 55, "생일", "튤립 한 다발", "꽃·식물", 38000, null, true),
+            RecordSeed.gift("최유나", 68, "수능 응원", "핸드크림 세트", "생활용품", 19000, null, true),
+            RecordSeed.gift("정하늘", 82, "이사 축하", "몬스테라 화분", "꽃·식물", 45000, null, true),
+            RecordSeed.event("김민수", 31, "결혼 축의금", "축의금", EventCategory.WEDDING, 100000, 7, false),
+            RecordSeed.event("박지영", 31, "결혼 축의금", "축의금", EventCategory.WEDDING, 50000, 7, true),
+            RecordSeed.event("최유나", 31, "결혼 축의금", "축의금", EventCategory.WEDDING, 100000, 7, false),
+            RecordSeed.event("정하늘", 15, "부친상 조의금", "조의금", EventCategory.FUNERAL, 100000, 9, false),
+            RecordSeed.event("한소희", 15, "부친상 조의금", "조의금", EventCategory.FUNERAL, 50000, null, true),
+            RecordSeed.event("이서준", 15, "부친상 조의금", "조의금", EventCategory.FUNERAL, 50000, 9, false)
     );
 
     @Bean
@@ -152,7 +174,7 @@ public class DemoDataInitializer {
      * 큰 이벤트 하나에 수십 명이 몰리는 실제 모양을 만든다.
      * 결혼식 축의금 45건 + 장례식 조의금 25건 + 일반 선물 30건 ≈ 100건.
      */
-    private int seedBulk(User user, Map<String, Category> categories, PersonRepository personRepository,
+    private int seedBulk(User user, Map<String, Category> giftCategoriesByName, PersonRepository personRepository,
                          GiftRecordRepository giftRecordRepository, ReminderTaskRepository reminderTaskRepository,
                          LocalDate today) {
         Random rnd = new Random(42);   // 고정 시드 — 재기동해도 같은 데이터가 나온다
@@ -171,14 +193,13 @@ public class DemoDataInitializer {
         int[] congratulation = {50000, 50000, 100000, 100000, 100000, 200000, 300000};
 
         // 결혼식 — 같은 날 45명
-        Category wedding = categories.get("내 결혼식");
-        LocalDate weddingDay = today.minusDays(31);
+        LocalDate weddingDay = today.minusDays(EVENT_DAYS_AGO.get(EventCategory.WEDDING));
         for (int i = 0; i < 45; i++) {
             Person p = pool.get(i);
             boolean thanked = rnd.nextInt(10) < 4;
             LocalDate remind = thanked ? null : today.plusDays(7 + rnd.nextInt(21));
             GiftRecord r = giftRecordRepository.save(GiftRecord.createConfirmed(
-                    user, p, wedding, "결혼 축의금", "축의금",
+                    user, p, RecordType.EVENT, null, EventCategory.WEDDING, weddingDay, "결혼 축의금", "축의금",
                     congratulation[rnd.nextInt(congratulation.length)], weddingDay, remind, thanked));
             records.add(r);
             if (remind != null) {
@@ -187,23 +208,22 @@ public class DemoDataInitializer {
         }
 
         // 장례식 — 같은 날 25명
-        Category funeral = categories.get("아버지 장례식");
-        LocalDate funeralDay = today.minusDays(15);
+        LocalDate funeralDay = today.minusDays(EVENT_DAYS_AGO.get(EventCategory.FUNERAL));
         for (int i = 45; i < 70; i++) {
             Person p = pool.get(i);
             boolean thanked = rnd.nextInt(10) < 5;
             GiftRecord r = giftRecordRepository.save(GiftRecord.createConfirmed(
-                    user, p, funeral, "부친상 조의금", "조의금",
+                    user, p, RecordType.EVENT, null, EventCategory.FUNERAL, funeralDay, "부친상 조의금", "조의금",
                     congratulation[rnd.nextInt(4)], funeralDay, thanked ? null : today.plusDays(9), thanked));
             records.add(r);
         }
 
         // 일반 선물 30건 — 카테고리와 날짜를 흩뿌린다
-        List<Category> giftCategories = categories.values().stream().filter(c -> !c.getKind().isEvent()).toList();
+        List<Category> giftCategories = List.copyOf(giftCategoriesByName.values());
         for (int i = 0; i < 30; i++) {
             Person p = pool.get(rnd.nextInt(pool.size()));
             records.add(giftRecordRepository.save(GiftRecord.createConfirmed(
-                    user, p, giftCategories.get(rnd.nextInt(giftCategories.size())),
+                    user, p, RecordType.GIFT, giftCategories.get(rnd.nextInt(giftCategories.size())), null, null,
                     "생일 선물", GIFT_NAMES.get(rnd.nextInt(GIFT_NAMES.size())),
                     15000 + rnd.nextInt(9) * 10000, today.minusDays(rnd.nextInt(300)), null, rnd.nextBoolean())));
         }
@@ -221,13 +241,8 @@ public class DemoDataInitializer {
         User user = userRepository.save(
                 new User(username, passwordEncoder.encode(username + DEMO_PASSWORD_SUFFIX), name));
 
-        // 카테고리는 사용자별이므로 이 계정 것으로 먼저 깔아둔다(선물 6종).
+        // 카테고리는 사용자별이므로 이 계정 것으로 먼저 깔아둔다(선물 6종). 경조사는 고정 7종 enum이라 여기 관여하지 않는다.
         categoryService.provisionDefaults(user);
-        // 경조사 탭은 기본값이 없다. 데모에서 이벤트 카드가 보이도록 실제 이벤트 두 개를 만들어준다.
-        categoryRepository.save(new Category(user, "내 결혼식", "💒", "gold", 110, true, GiftKind.CELEBRATION,
-                today.minusDays(60)));
-        categoryRepository.save(new Category(user, "아버지 장례식", "🕊️", "blue", 120, true, GiftKind.CONDOLENCE,
-                today.minusDays(200)));
         Map<String, Category> categories = new LinkedHashMap<>();
         categoryRepository.findByUser_UsernameOrderByDisplayOrderAscIdAsc(username)
                 .forEach(c -> categories.put(c.getName(), c));
@@ -243,12 +258,21 @@ public class DemoDataInitializer {
         List<ReminderTask> reminders = new ArrayList<>();
         for (RecordSeed seed : RECORDS) {
             Person person = people.get(seed.personName());
-            Category category = categories.getOrDefault(seed.category(), categories.get("기타"));
             LocalDate reminderDate = seed.reminderInDays() == null ? null : today.plusDays(seed.reminderInDays());
 
-            GiftRecord record = giftRecordRepository.save(GiftRecord.createConfirmed(
-                    user, person, category, seed.occasion(), seed.gift(), seed.amount(),
-                    today.minusDays(seed.receivedDaysAgo()), reminderDate, seed.thanked()));
+            GiftRecord record;
+            if (seed.eventCategory() != null) {
+                LocalDate eventDate = today.minusDays(EVENT_DAYS_AGO.get(seed.eventCategory()));
+                record = giftRecordRepository.save(GiftRecord.createConfirmed(
+                        user, person, RecordType.EVENT, null, seed.eventCategory(), eventDate, seed.occasion(),
+                        seed.gift(), seed.amount(), today.minusDays(seed.receivedDaysAgo()), reminderDate,
+                        seed.thanked()));
+            } else {
+                Category category = categories.getOrDefault(seed.category(), categories.get("기타"));
+                record = giftRecordRepository.save(GiftRecord.createConfirmed(
+                        user, person, RecordType.GIFT, category, null, null, seed.occasion(), seed.gift(),
+                        seed.amount(), today.minusDays(seed.receivedDaysAgo()), reminderDate, seed.thanked()));
+            }
 
             // 답례가 끝난 기록에는 알림을 만들지 않는다(이미 챙긴 건 다시 알릴 이유가 없다).
             if (reminderDate != null && !seed.thanked()) {

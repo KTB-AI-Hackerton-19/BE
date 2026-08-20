@@ -36,24 +36,19 @@ public class CategoryController {
             description = "마음 기록 화면의 카테고리 필터 칩('전체'는 프론트가 앞에 붙이면 됨)과 기록 모달의 카테고리 select를 "
                     + "이 목록으로 그린다. 하드코딩하지 말고 이 API를 쓰면 카테고리를 추가해도 프론트 수정이 필요 없다. "
                     + "각 항목의 recordCount는 현재 로그인 사용자의 해당 카테고리 기록 수라, 0인 칩은 숨기는 식으로 활용 가능. "
-                    + "상단 [선물]/[경조사] 탭은 kind 파라미터로 나눈다."
+                    + "이 목록은 선물(GIFT) 전용이다 — 경조사 유형은 고정 7종이라 GET /api/gift-records/event-categories 참고."
     )
     @GetMapping
     public ApiResponse<List<CategoryResponse>> list(
             @Parameter(description = "비활성(active=false) 카테고리까지 포함할지 여부. 기본 false")
-            @RequestParam(required = false, defaultValue = "false") boolean includeInactive,
-            @Parameter(description = "탭 필터. EVENT(경조사 전체) / GIFT(선물) / CELEBRATION(경사) / CONDOLENCE(조사). "
-                    + "한글(경조사·선물·경사·조사)도 허용. 생략하면 전체", example = "EVENT")
-            @RequestParam(required = false) String kind) {
-        return ApiResponse.success(categoryService.list(includeInactive, kind));
+            @RequestParam(required = false, defaultValue = "false") boolean includeInactive) {
+        return ApiResponse.success(categoryService.list(includeInactive));
     }
 
     @Operation(
             summary = "카테고리 추가",
             description = "새 카테고리를 추가한다. 추가 즉시 목록 API와 기록 등록/수정 API에 반영되며 서버 재시작이 필요 없다. "
-                    + "emoji/color/displayOrder를 생략하면 각각 🎁 / blue / 맨 뒤로 채워진다. "
-                    + "kind가 경조사(CELEBRATION/CONDOLENCE)면 eventDate에 행사일을 함께 보내면 된다 "
-                    + "(선물 카테고리에 보낸 eventDate는 저장되지 않는다)."
+                    + "emoji/color/displayOrder를 생략하면 각각 🎁 / blue / 맨 뒤로 채워진다. 선물 카테고리 전용이다."
     )
     @PostMapping
     public ApiResponse<CategoryResponse> create(@Valid @RequestBody CategoryRequest request) {
@@ -62,9 +57,8 @@ public class CategoryController {
 
     @Operation(
             summary = "카테고리 수정",
-            description = "이름/이모지/색상/정렬순서/노출여부/행사일을 수정한다. active=false로 바꾸면 목록에서 숨겨지지만, "
-                    + "이미 이 카테고리로 저장된 기록은 그대로 유지된다. "
-                    + "kind를 GIFT로 바꾸면 행사일(eventDate)은 자동으로 비워진다."
+            description = "이름/이모지/색상/정렬순서/노출여부를 수정한다. active=false로 바꾸면 목록에서 숨겨지지만, "
+                    + "이미 이 카테고리로 저장된 기록은 그대로 유지된다."
     )
     @PatchMapping("/{id}")
     public ApiResponse<CategoryResponse> update(

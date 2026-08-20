@@ -22,12 +22,23 @@ public record GiftRecordCreateRequest(
                 + "선택지는 GET /api/relationships 참고", example = "친구")
         Relationship relation,
 
-        @Schema(description = "카테고리 ID. GET /api/categories 로 받은 id", example = "1") Long categoryId,
+        @Schema(description = "대분류. GIFT(선물, 기본) / EVENT(경조사). 한글(선물/경조사)도 허용", example = "GIFT")
+        String recordType,
 
-        @Schema(description = "카테고리 이름. categoryId 대신 이름으로 보내도 된다(없으면 '기타' 처리)", example = "디저트")
+        @Schema(description = "카테고리 ID. GET /api/categories 로 받은 id. recordType=GIFT일 때만 쓰인다", example = "1") Long categoryId,
+
+        @Schema(description = "카테고리 이름. categoryId 대신 이름으로 보내도 된다(없으면 '기타' 처리). recordType=GIFT일 때만 쓰인다",
+                example = "디저트")
         String category,
 
-        @Schema(description = "받은 이유 (자유 텍스트)", example = "내 생일") String occasion,
+        @Schema(description = "경조사 유형. recordType=EVENT일 때 필수 — 결혼/출산·돌잔치/수연/취업·승진/개업·이사/장례식/제사·탈상 "
+                + "(영문 코드 WEDDING 등도 허용) 중 하나만 가능하다. GET /api/gift-records/event-categories 참고", example = "결혼")
+        String eventCategory,
+
+        @Schema(description = "행사일. recordType=EVENT일 때만 쓰인다 — 결혼식·장례식이 실제로 열린 날", example = "2026-05-10")
+        LocalDate eventDate,
+
+        @Schema(description = "받은 이유 (자유 텍스트). recordType=GIFT일 때만 쓰인다", example = "내 생일") String occasion,
 
         @Schema(description = "선물명", example = "스타벅스 케이크") String gift,
 

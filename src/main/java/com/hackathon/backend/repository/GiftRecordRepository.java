@@ -1,7 +1,8 @@
 package com.hackathon.backend.repository;
 
-import com.hackathon.backend.domain.GiftKind;
+import com.hackathon.backend.domain.EventCategory;
 import com.hackathon.backend.domain.GiftRecord;
+import com.hackathon.backend.domain.RecordType;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -35,7 +36,8 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
               and (:categoryId is null or c.id = :categoryId)
               and (:personId is null or p.id = :personId)
               and (:thanked is null or r.thanked = :thanked)
-              and (:allKinds = true or c.kind in :kinds)
+              and (:recordType is null or r.recordType = :recordType)
+              and (:allEventCategories = true or r.eventCategory in :eventCategories)
               and (:startDate is null or r.receivedDate >= :startDate)
               and (:endDate is null or r.receivedDate <= :endDate)
               and (:personName is null or lower(p.name) like lower(concat('%', :personName, '%')))
@@ -49,8 +51,9 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
                             @Param("categoryId") Long categoryId,
                             @Param("personId") Long personId,
                             @Param("thanked") Boolean thanked,
-                            @Param("allKinds") boolean allKinds,
-                            @Param("kinds") List<GiftKind> kinds,
+                            @Param("recordType") RecordType recordType,
+                            @Param("allEventCategories") boolean allEventCategories,
+                            @Param("eventCategories") List<EventCategory> eventCategories,
                             @Param("startDate") LocalDate startDate,
                             @Param("endDate") LocalDate endDate,
                             @Param("personName") String personName,

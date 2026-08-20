@@ -1,11 +1,12 @@
 package com.hackathon.backend.dto.gift;
 
 import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.domain.EventCategory;
 import com.hackathon.backend.domain.GiftRecord;
-import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.Gender;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.RecordType;
 import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.support.MoneyFormatter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -23,17 +24,18 @@ public record GiftRecordResponse(
 
         @Schema(description = "받은 날짜 — 화면의 date", example = "2026-08-18") LocalDate date,
         @Schema(description = "답례 알림일 — 화면의 reminderDate (미설정이면 null)", example = "2026-09-14") LocalDate reminderDate,
-        @Schema(description = "받은 이유 (자유 텍스트) — 화면의 occasion", example = "내 생일") String occasion,
+        @Schema(description = "받은 이유 (자유 텍스트) — 화면의 occasion. recordType=EVENT면 항상 null",
+                example = "내 생일") String occasion,
         @Schema(description = "선물명 — 화면의 gift", example = "스타벅스 케이크") String gift,
 
-        @Schema(description = "카테고리 ID", example = "1") Long categoryId,
-        @Schema(description = "카테고리 이름 — 화면의 category (필터 칩 비교에 사용)", example = "디저트") String category,
+        @Schema(description = "카테고리 ID. recordType=EVENT면 항상 null", example = "1") Long categoryId,
+        @Schema(description = "카테고리 이름 — 화면의 category. recordType=EVENT면 항상 null", example = "디저트") String category,
 
         @Schema(description = "금액(원) 정수 — 정렬·집계·필터용", example = "35000") Integer amount,
         @Schema(description = "포맷된 금액 문자열 — 화면의 price. 그대로 출력하면 됨", example = "35,000원") String price,
 
-        @Schema(description = "카테고리에서 파생된 이모지 — 화면의 emoji", example = "🍰") String emoji,
-        @Schema(description = "카테고리에서 파생된 카드 배경 테마 — 화면의 color", example = "mint") String color,
+        @Schema(description = "화면의 emoji — GIFT면 카테고리, EVENT면 경조사 유형에서 파생", example = "🍰") String emoji,
+        @Schema(description = "화면의 color — GIFT면 카테고리, EVENT면 경조사 유형에서 파생", example = "mint") String color,
 
         @Schema(description = "감사/답례 완료 여부 — true면 '감사 완료', false면 '확인 필요' 뱃지", example = "true") boolean thanked,
 
@@ -43,9 +45,16 @@ public record GiftRecordResponse(
         @Schema(description = "AI가 추정한 보낸 사람 성별 (새 사람 등록 폼 프리필용, 없으면 null)", example = "남성") Gender extractedGender,
         @Schema(description = "원본 이미지 조회용 presigned GET URL (매 응답마다 새로 발급, 15분 만료)") String imageUrl,
 
-        @Schema(description = "분류 — 카테고리가 속한 탭에서 파생. GIFT(선물) / CELEBRATION(경사) / CONDOLENCE(조사)") GiftKind kind,
-        @Schema(description = "분류 한글 라벨. 화면에 그대로 출력하면 된다", example = "경사") String kindLabel,
-        @Schema(description = "경조사 여부(경사 또는 조사). 큰 틀 필터에 쓰면 된다", example = "true") boolean event,
+        @Schema(description = "대분류. GIFT(선물) / EVENT(경조사)") RecordType recordType,
+        @Schema(description = "대분류 한글 라벨. 화면에 그대로 출력하면 된다", example = "선물") String recordTypeLabel,
+        @Schema(description = "경조사 여부(recordType=EVENT). 큰 틀 필터에 쓰면 된다", example = "false") boolean event,
+
+        @Schema(description = "경조사 유형(고정 7종). recordType=EVENT일 때만 값이 있다", example = "WEDDING") EventCategory eventCategory,
+        @Schema(description = "경조사 유형 한글 라벨", example = "결혼") String eventCategoryLabel,
+        @Schema(description = "경조사 그룹 — CELEBRATION(경사) / CONDOLENCE(조사). recordType=EVENT일 때만 값이 있다")
+        String eventGroup,
+        @Schema(description = "경조사 그룹 한글 라벨", example = "경사") String eventGroupLabel,
+        @Schema(description = "행사일. recordType=EVENT일 때만 값이 있다", example = "2026-05-10") LocalDate eventDate,
 
         @Schema(description = "DRAFT(AI 추출 직후, 사용자 확인 전) 또는 CONFIRMED(사용자 확정 완료)") GiftRecordStatus status,
         @Schema(description = "기록 생성 시각") LocalDateTime createdAt,
@@ -66,6 +75,16 @@ public record GiftRecordResponse(
     public static GiftRecordResponse from(GiftRecord record, String imageUrl, boolean aiFallback, String aiError) {
         Person person = record.getPerson();
         Category category = record.getCategory();
+        EventCategory eventCategory = record.getEventCategory();
+        boolean isEvent = record.getRecordType() == RecordType.EVENT;
+
+        String emoji = isEvent
+                ? (eventCategory != null ? eventCategory.getEmoji() : DEFAULT_EMOJI)
+                : (category != null ? category.getEmoji() : DEFAULT_EMOJI);
+        String color = isEvent
+                ? (eventCategory != null ? eventCategory.getColor() : DEFAULT_COLOR)
+                : (category != null ? category.getColor() : DEFAULT_COLOR);
+
         return new GiftRecordResponse(
                 record.getId(),
                 person != null ? person.getId() : null,
@@ -79,17 +98,22 @@ public record GiftRecordResponse(
                 category != null ? category.getName() : null,
                 record.getAmount(),
                 MoneyFormatter.format(record.getAmount()),
-                category != null ? category.getEmoji() : DEFAULT_EMOJI,
-                category != null ? category.getColor() : DEFAULT_COLOR,
+                emoji,
+                color,
                 record.isThanked(),
                 record.getExtractedSenderName(),
                 record.getExtractedRelationship(),
                 record.getExtractedAge(),
                 record.getExtractedGender(),
                 imageUrl,
-                category != null ? category.getKind() : null,
-                category != null && category.getKind() != null ? category.getKind().getLabel() : null,
-                category != null && category.getKind() != null && category.getKind().isEvent(),
+                record.getRecordType(),
+                record.getRecordType() != null ? record.getRecordType().getLabel() : null,
+                isEvent,
+                eventCategory,
+                eventCategory != null ? eventCategory.getLabel() : null,
+                eventCategory != null ? eventCategory.getGroup().name() : null,
+                eventCategory != null ? eventCategory.getGroup().getLabel() : null,
+                record.getEventDate(),
                 record.getStatus(),
                 record.getCreatedAt(),
                 aiFallback,

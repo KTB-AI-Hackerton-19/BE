@@ -13,9 +13,16 @@ public record GiftRecordUpdateRequest(
         @Schema(description = "보낸 사람 Person ID", example = "3") Long personId,
         @Schema(description = "보낸 사람 이름. personId 대신 이름으로 지정 가능 (없으면 새로 등록)", example = "김민수") String personName,
         @Schema(description = "관계 카테고리 (GET /api/relationships 의 라벨)", example = "친구") Relationship relation,
-        @Schema(description = "카테고리 ID", example = "1") Long categoryId,
-        @Schema(description = "카테고리 이름 (categoryId 대신 사용 가능)", example = "디저트") String category,
-        @Schema(description = "받은 이유 (자유 텍스트)", example = "내 생일") String occasion,
+
+        @Schema(description = "대분류. GIFT(선물) / EVENT(경조사). 한글도 허용. 생략하면 기존 값 유지", example = "GIFT")
+        String recordType,
+        @Schema(description = "카테고리 ID. recordType=GIFT일 때만 쓰인다", example = "1") Long categoryId,
+        @Schema(description = "카테고리 이름 (categoryId 대신 사용 가능). recordType=GIFT일 때만 쓰인다", example = "디저트") String category,
+        @Schema(description = "경조사 유형. recordType=EVENT일 때 필수 — 고정 7종 중 하나 (한글/영문 코드 모두 허용)",
+                example = "결혼") String eventCategory,
+        @Schema(description = "행사일. recordType=EVENT일 때만 쓰인다", example = "2026-05-10") LocalDate eventDate,
+
+        @Schema(description = "받은 이유 (자유 텍스트). recordType=GIFT일 때만 쓰인다", example = "내 생일") String occasion,
         @Schema(description = "선물명", example = "스타벅스 케이크") String gift,
         @Schema(description = "금액. 숫자와 \"35,000원\" 형식 문자열 모두 허용", example = "35,000원") String price,
         @Schema(description = "받은 날짜", example = "2026-08-18") LocalDate date,

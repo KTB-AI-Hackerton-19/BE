@@ -26,7 +26,12 @@ import lombok.NoArgsConstructor;
  * </pre>
  *
  * <p>person/relation → {@link Person}, date → receivedDate, gift → giftName, price → amount(정수),
- * emoji/color → {@link Category}에서 파생, 나머지는 그대로 컬럼.</p>
+ * 나머지는 그대로 컬럼.</p>
+ *
+ * <p><b>{@link #recordType}이 GIFT/EVENT를 가른다.</b> GIFT면 {@link #category}(사용자별 자유 카테고리)와
+ * {@link #occasion}(자유 텍스트)을 쓰고, EVENT면 {@link #eventCategory}(고정 7종)와 {@link #eventDate}
+ * (행사가 실제 열린 날)를 쓴다. 두 짝이 섞인 상태("선물인데 eventCategory 있음")가 저장되지 않도록
+ * {@link #applyRecordType}이 한쪽을 항상 비운다 — 앞뒤가 안 맞는 조합이 아예 만들어지지 않게 하려는 것이다.</p>
  */
 @Entity
 @Table(name = "gift_records", indexes = {
@@ -50,9 +55,29 @@ public class GiftRecord {
     @JoinColumn(name = "person_id")
     private Person person;
 
+    /** 대분류. GIFT면 category/occasion을, EVENT면 eventCategory/eventDate를 쓴다. */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private RecordType recordType;
+
+    /** 선물 카테고리. recordType=GIFT일 때만 값이 있다 */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id")
     private Category category;
+
+    /** 경조사 유형(고정 7종). recordType=EVENT일 때만 값이 있다 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private EventCategory eventCategory;
+
+    /**
+     * 행사가 실제로 열린 날. recordType=EVENT일 때만 값이 있다.
+     *
+     * <p>기록의 receivedDate(축의금을 받은 날)와는 다르다 — 축의금은 행사 전후로 흩어져 들어오므로
+     * 기록에서 역산하면 행사일이 하루씩 어긋난다. 그래서 사용자가 직접 입력받아 여기 저장한다.</p>
+     */
+    @Column
+    private LocalDate eventDate;
 
     /** S3 원본 이미지 key (응답에는 presigned GET URL로 변환해서 내려감) */
     @Column
@@ -112,14 +137,15 @@ public class GiftRecord {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
-    public static GiftRecord createConfirmed(User user, Person person, Category category, String occasion,
+    public static GiftRecord createConfirmed(User user, Person person, RecordType recordType, Category category,
+                                             EventCategory eventCategory, LocalDate eventDate, String occasion,
                                              String giftName, Integer amount, LocalDate receivedDate,
                                              LocalDate reminderDate, boolean thanked) {
         GiftRecord record = new GiftRecord();
         record.user = user;
         record.person = person;
-        record.category = category;
-        record.occasion = occasion;
+        record.applyRecordType(recordType, category, eventCategory, eventDate);
+        record.occasion = record.recordType == RecordType.GIFT ? occasion : null;
         record.giftName = giftName;
         record.amount = amount;
         record.receivedDate = receivedDate;
@@ -132,7 +158,8 @@ public class GiftRecord {
 
     public static GiftRecord createDraft(User user, Person person, String imageKey, String extractedSenderName,
                                          Relationship extractedRelationship, Integer extractedAge,
-                                         Gender extractedGender, Category category, String occasion,
+                                         Gender extractedGender, RecordType recordType, Category category,
+                                         EventCategory eventCategory, LocalDate eventDate, String occasion,
                                          String giftName, Integer amount, LocalDate receivedDate,
                                          LocalDate reminderDate) {
         GiftRecord record = new GiftRecord();
@@ -143,8 +170,8 @@ public class GiftRecord {
         record.extractedRelationship = extractedRelationship;
         record.extractedAge = extractedAge;
         record.extractedGender = extractedGender;
-        record.category = category;
-        record.occasion = occasion;
+        record.applyRecordType(recordType, category, eventCategory, eventDate);
+        record.occasion = record.recordType == RecordType.GIFT ? occasion : null;
         record.giftName = giftName;
         record.amount = amount;
         record.receivedDate = receivedDate;
@@ -156,16 +183,21 @@ public class GiftRecord {
     }
 
     /** 확인/수정 폼 저장 — null로 들어온 필드는 기존 값을 유지한다(부분 수정 PATCH 시맨틱). */
-    public void applyUpdate(Person person, Category category, String occasion, String giftName,
-                            Integer amount, LocalDate receivedDate, LocalDate reminderDate, Boolean thanked) {
+    public void applyUpdate(Person person, RecordType recordType, Category category, EventCategory eventCategory,
+                            LocalDate eventDate, String occasion, String giftName, Integer amount,
+                            LocalDate receivedDate, LocalDate reminderDate, Boolean thanked) {
         if (person != null) {
             this.person = person;
         }
-        if (category != null) {
-            this.category = category;
+        if (recordType != null || category != null || eventCategory != null || eventDate != null) {
+            applyRecordType(
+                    recordType != null ? recordType : this.recordType,
+                    category != null ? category : this.category,
+                    eventCategory != null ? eventCategory : this.eventCategory,
+                    eventDate != null ? eventDate : this.eventDate);
         }
         if (occasion != null) {
-            this.occasion = occasion;
+            this.occasion = this.recordType == RecordType.GIFT ? occasion : null;
         }
         if (giftName != null) {
             this.giftName = giftName;
@@ -188,7 +220,25 @@ public class GiftRecord {
         this.status = GiftRecordStatus.CONFIRMED;
     }
 
-    /** 카테고리가 삭제될 때 남은 기록을 다른 카테고리("기타")로 옮긴다. */
+    /**
+     * recordType에 맞춰 category/eventCategory/eventDate를 일관되게 맞춘다.
+     * GIFT면 eventCategory/eventDate를, EVENT면 category를 강제로 비워 앞뒤 안 맞는 조합을 막는다.
+     */
+    private void applyRecordType(RecordType recordType, Category category, EventCategory eventCategory,
+                                 LocalDate eventDate) {
+        this.recordType = recordType == null ? RecordType.GIFT : recordType;
+        if (this.recordType == RecordType.EVENT) {
+            this.category = null;
+            this.eventCategory = eventCategory;
+            this.eventDate = eventDate;
+        } else {
+            this.category = category;
+            this.eventCategory = null;
+            this.eventDate = null;
+        }
+    }
+
+    /** 카테고리가 삭제될 때 남은 기록을 다른 카테고리("기타")로 옮긴다. GIFT 기록에서만 호출된다. */
     public void changeCategory(Category category) {
         this.category = category;
     }

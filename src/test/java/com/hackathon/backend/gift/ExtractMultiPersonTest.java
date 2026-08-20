@@ -5,8 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hackathon.backend.client.AiExtractResponse;
-import com.hackathon.backend.domain.GiftKind;
+import com.hackathon.backend.domain.EventCategory;
 import com.hackathon.backend.domain.GiftRecord;
+import com.hackathon.backend.domain.RecordType;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
 import com.hackathon.backend.support.EventClassifier;
@@ -25,8 +26,9 @@ class ExtractMultiPersonTest {
 
     /** 저장 전 DRAFT 한 건. DB를 태우지 않고 응답 직렬화만 보기 위한 최소 픽스처다. */
     private static GiftRecordResponse draftResponse(String senderName) {
-        GiftRecord draft = GiftRecord.createDraft(null, null, "key.jpg", senderName, null, null, null, null,
-                "결혼식", null, 100000, LocalDate.of(2026, 8, 15), LocalDate.of(2026, 9, 14));
+        GiftRecord draft = GiftRecord.createDraft(null, null, "key.jpg", senderName, null, null, null,
+                RecordType.GIFT, null, null, null, "결혼식", null, 100000,
+                LocalDate.of(2026, 8, 15), LocalDate.of(2026, 9, 14));
         return GiftRecordResponse.from(draft, null);
     }
 
@@ -99,14 +101,14 @@ class ExtractMultiPersonTest {
     }
 
     @Test
-    void 경조사_판정은_경사와_조사를_가른다() {
-        assertEquals(GiftKind.CELEBRATION, EventClassifier.classify("결혼식 축의금"));
-        assertEquals(GiftKind.CONDOLENCE, EventClassifier.classify("아버지 장례식 조의금"));
-        // 평범한 생일 선물이 경조사 탭으로 넘어가면 안 된다.
-        assertEquals(GiftKind.GIFT, EventClassifier.classify("생일 축하"));
-        assertEquals(GiftKind.GIFT, EventClassifier.classify((String) null));
-        assertEquals("결혼식", EventClassifier.eventName(GiftKind.CELEBRATION, "결혼식"));
-        assertEquals("조사", EventClassifier.eventName(GiftKind.CONDOLENCE, null, " "));
+    void 경조사_판정은_유형을_가른다() {
+        assertEquals(EventCategory.WEDDING, EventClassifier.classify("결혼식 축의금"));
+        assertEquals(EventCategory.FUNERAL, EventClassifier.classify("아버지 장례식 조의금"));
+        // 평범한 생일 선물이 경조사로 넘어가면 안 된다.
+        assertNull(EventClassifier.classify("생일 축하"));
+        assertNull(EventClassifier.classify((String) null));
+        assertEquals("결혼식", EventClassifier.eventName(EventCategory.WEDDING, "결혼식"));
+        assertEquals("장례식", EventClassifier.eventName(EventCategory.FUNERAL, null, " "));
     }
 
     @Test
@@ -115,7 +117,7 @@ class ExtractMultiPersonTest {
         var first = draftResponse("김민수");
         var second = draftResponse("이서연");
 
-        String json = mapper.writeValueAsString(GiftRecordExtractResponse.of(List.of(first, second), null, false));
+        String json = mapper.writeValueAsString(GiftRecordExtractResponse.of(List.of(first, second), null));
 
         assertTrue(json.contains("\"person\":\"김민수\""), json);
         assertTrue(json.contains("\"personCount\":2"), json);
@@ -123,6 +125,6 @@ class ExtractMultiPersonTest {
         assertTrue(json.contains("\"records\":["), json);
         // 래퍼 필드가 중첩되어 들어가면(=@JsonUnwrapped가 안 먹으면) 최상위에 primary 키가 남는다.
         assertTrue(!json.contains("\"primary\""), json);
-        assertNull(GiftRecordExtractResponse.of(List.of(first), null, false).eventCategory());
+        assertNull(GiftRecordExtractResponse.of(List.of(first), null).eventCategory());
     }
 }
