@@ -4,6 +4,9 @@ import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.dto.ApiResponse;
 import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.gift.EventCategoryResponse;
+import com.hackathon.backend.dto.gift.GiftRecordBulkConfirmRequest;
+import com.hackathon.backend.dto.gift.GiftRecordBulkCreateRequest;
+import com.hackathon.backend.dto.gift.GiftRecordBulkResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
 import com.hackathon.backend.dto.gift.GiftRecordDeleteResponse;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
@@ -102,6 +105,37 @@ public class GiftRecordController {
     @PostMapping
     public ApiResponse<GiftRecordResponse> create(@Valid @RequestBody GiftRecordCreateRequest request) {
         return ApiResponse.success(giftRecordService.create(request));
+    }
+
+    @Operation(
+            summary = "마음 기록 여러 건 등록 (하객 명단 한 번에)",
+            description = "경조사 하객처럼 **여러 명을 한 요청으로** 저장한다. 단건 등록을 사람 수만큼 반복하면 "
+                    + "요청이 그 수만큼 날아가고, 동시에 들어온 요청들이 서로를 못 봐서 같은 행사의 구글 캘린더 일정이 "
+                    + "하객 수만큼 생기는 문제가 있었다.\n\n"
+                    + "행사 정보(recordType/eventCategory/eventDate/date/reminderDate/gift/price)는 **최상위에 한 번**만 적고, "
+                    + "guests에는 사람마다 다른 값만 넣으면 된다 — 비운 칸은 최상위 공통값을 그대로 물려받는다. "
+                    + "등록된 사람은 personId로, 하객처럼 '사람들'에 올리지 않을 이름은 guestName으로 보낸다.\n\n"
+                    + "**전부 저장되거나 전부 저장되지 않는다.** 한 건이라도 문제가 있으면 아무것도 저장하지 않고 400이며, "
+                    + "몇 번째 항목의 어느 칸이 문제인지 error.fields에 `guests[2].price` 형태로 모아서 내려간다."
+    )
+    @PostMapping("/bulk")
+    public ApiResponse<GiftRecordBulkResponse> createBulk(@Valid @RequestBody GiftRecordBulkCreateRequest request) {
+        return ApiResponse.success(giftRecordService.createBulk(request));
+    }
+
+    @Operation(
+            summary = "DRAFT 여러 건 확정 (사진 한 장에 여러 명)",
+            description = "`/extract`가 만든 DRAFT 여러 건을 **한 요청으로** 확정한다. "
+                    + "PATCH /api/gift-records/{id}를 사람 수만큼 반복하던 것을 대체한다.\n\n"
+                    + "이름·금액·받은 날짜처럼 **사람마다 다른 값은 AI가 넣어 둔 것을 그대로 두고**, "
+                    + "확인 폼에서 사용자가 고친 공통값(행사 유형·행사일·답례 알림일 등)만 전원에게 얹는다. "
+                    + "값을 안 보낸 필드는 각 기록의 기존 값이 유지된다.\n\n"
+                    + "등록과 마찬가지로 전부 확정되거나 전부 확정되지 않으며, 오류는 보낸 ids 순서 기준으로 "
+                    + "`ids[1].eventCategory` 형태로 모아서 내려간다."
+    )
+    @PatchMapping("/bulk")
+    public ApiResponse<GiftRecordBulkResponse> confirmBulk(@Valid @RequestBody GiftRecordBulkConfirmRequest request) {
+        return ApiResponse.success(giftRecordService.confirmBulk(request));
     }
 
     @Operation(

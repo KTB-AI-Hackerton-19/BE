@@ -16,6 +16,10 @@ import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.ErrorDetail;
 import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.gift.EventCategoryResponse;
+import com.hackathon.backend.dto.gift.GiftRecordBulkConfirmRequest;
+import com.hackathon.backend.dto.gift.GiftRecordBulkCreateRequest;
+import com.hackathon.backend.dto.gift.GiftRecordBulkGuest;
+import com.hackathon.backend.dto.gift.GiftRecordBulkResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
 import com.hackathon.backend.dto.gift.GiftRecordDeleteResponse;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
@@ -34,8 +38,10 @@ import com.hackathon.backend.support.MoneyFormatter;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
@@ -110,6 +116,26 @@ public class GiftRecordService {
         String username = SecurityUtils.getCurrentUsername();
         User user = getUser(username);
 
+        GiftRecord record = buildRecord(user, request);
+        giftRecordRepository.save(record);
+
+        syncReminder(user, record);
+        // 새 마음이 들어오면 그 사람 추천의 근거가 달라진다. 낡은 추천이 그대로 나가지 않게 버린다.
+        recommendationCache.evict(username, record.getPerson() == null ? null : record.getPerson().getId());
+        return toResponse(record);
+    }
+
+    /**
+     * 저장 직전까지의 조립 + 검증. 아직 save하지 않는다.
+     *
+     * <p>벌크 저장이 <b>한 건이라도 잘못됐으면 아무것도 저장하지 않기</b> 위해 분리했다 —
+     * 전 항목을 먼저 조립해 보고, 그 과정에서 나온 오류를 모아서 한 번에 돌려준다.</p>
+     */
+    private GiftRecord buildRecord(User user, GiftRecordCreateRequest request) {
+        // 단건 경로는 @NotNull이 막아주지만, 벌크는 공통값·항목값이 둘 다 비면 여기로 온다.
+        if (request.date() == null) {
+            throw CustomException.field("date", "받은 날짜를 입력해주세요.");
+        }
         validateDates(request.date(), request.reminderDate());
 
         // 빠진 값은 여기서 하나씩 튕기지 않고 validateRequired가 한 번에 모아 알려준다.
@@ -133,12 +159,141 @@ public class GiftRecordService {
                 MoneyFormatter.parse(request.price()), request.date(), request.reminderDate(),
                 Boolean.TRUE.equals(request.thanked()));
         validateRequired(record);
-        giftRecordRepository.save(record);
+        return record;
+    }
 
-        syncReminder(user, record);
-        // 새 마음이 들어오면 그 사람 추천의 근거가 달라진다. 낡은 추천이 그대로 나가지 않게 버린다.
-        recommendationCache.evict(username, sender.person() == null ? null : sender.person().getId());
-        return toResponse(record);
+    /**
+     * 하객 명단처럼 <b>여러 건을 한 요청으로</b> 저장한다.
+     *
+     * <p>단건 등록을 하객 수만큼 반복하면 요청이 그 수만큼 날아가고, 동시에 들어온 요청들이 서로의 커밋을
+     * 못 봐서 같은 행사의 구글 캘린더 일정이 하객 수만큼 생기는 문제가 있었다. 한 트랜잭션으로 묶으면
+     * {@link #syncReminder}가 순서대로 돌아 {@code findEventGroupTask}가 앞서 만든 일정을 제대로 찾는다.</p>
+     *
+     * <p><b>전부 저장되거나 전부 저장되지 않는다.</b> 50명 중 3명만 들어가면 사용자가 어디까지 됐는지
+     * 손으로 세야 하기 때문이다. 잘못된 항목은 {@code guests[2].price} 형태로 <b>모아서</b> 알려준다 —
+     * 하나씩 튕기면 저장 버튼을 항목 수만큼 눌러야 한다.</p>
+     */
+    @Transactional
+    public GiftRecordBulkResponse createBulk(GiftRecordBulkCreateRequest request) {
+        String username = SecurityUtils.getCurrentUsername();
+        User user = getUser(username);
+
+        List<GiftRecord> records = new ArrayList<>();
+        List<ErrorDetail.FieldError> errors = new ArrayList<>();
+        int failed = 0;
+
+        for (int index = 0; index < request.guests().size(); index++) {
+            try {
+                records.add(buildRecord(user, merge(request, request.guests().get(index))));
+            } catch (CustomException e) {
+                errors.addAll(indexedFields("guests", index, e));
+                failed++;
+            }
+        }
+        rejectIfAny(errors, failed, request.guests().size());
+
+        giftRecordRepository.saveAll(records);
+        return finishBulk(user, username, records);
+    }
+
+    /**
+     * AI가 만든 DRAFT 여러 건을 한 요청으로 확정한다.
+     *
+     * <p>사람마다 다른 값(이름·금액·받은 날짜)은 AI가 넣어 둔 것을 그대로 두고, 확인 폼에서 사용자가 고친
+     * <b>공통값만</b> 전원에게 얹는다. 단건 확정을 반복하던 것과 결과가 같도록 {@link #update}와 같은 경로를 쓴다.</p>
+     */
+    @Transactional
+    public GiftRecordBulkResponse confirmBulk(GiftRecordBulkConfirmRequest request) {
+        String username = SecurityUtils.getCurrentUsername();
+        User user = getUser(username);
+        GiftRecordUpdateRequest shared = request.toUpdateRequest();
+
+        List<GiftRecord> records = new ArrayList<>();
+        List<ErrorDetail.FieldError> errors = new ArrayList<>();
+        int failed = 0;
+
+        for (int index = 0; index < request.ids().size(); index++) {
+            try {
+                records.add(applyUpdate(user, username, request.ids().get(index), shared));
+            } catch (CustomException e) {
+                errors.addAll(indexedFields("ids", index, e));
+                failed++;
+            }
+        }
+        rejectIfAny(errors, failed, request.ids().size());
+
+        return finishBulk(user, username, records);
+    }
+
+    /** 벌크 저장의 마무리 — 알림/캘린더 동기화와 추천 캐시 무효화. 사람 단위 중복 호출을 피한다. */
+    private GiftRecordBulkResponse finishBulk(User user, String username, List<GiftRecord> records) {
+        Set<Long> personIds = new HashSet<>();
+        for (GiftRecord record : records) {
+            syncReminder(user, record);
+            if (record.getPerson() != null) {
+                personIds.add(record.getPerson().getId());
+            }
+        }
+        // 사람이 안 붙은 하객도 전체 추천의 근거가 되므로 null 하나를 함께 넘겨 사용자 단위 캐시도 버린다.
+        personIds.add(null);
+        recommendationCache.evict(username, personIds);
+
+        return new GiftRecordBulkResponse(records.size(), records.stream().map(this::toResponse).toList());
+    }
+
+    /** 공통값 위에 항목값을 얹는다. 항목이 비운 칸은 공통값을 그대로 물려받는다. */
+    private GiftRecordCreateRequest merge(GiftRecordBulkCreateRequest shared, GiftRecordBulkGuest item) {
+        return new GiftRecordCreateRequest(
+                item.personId(),
+                item.personName(),
+                item.guestName(),
+                item.registerPerson(),
+                item.relation(),
+                firstNonNull(item.recordType(), shared.recordType(), RecordType.EVENT.name()),
+                firstNonNull(item.categoryId(), shared.categoryId()),
+                firstNonNull(item.category(), shared.category()),
+                firstNonNull(item.eventCategory(), shared.eventCategory()),
+                firstNonNull(item.eventDate(), shared.eventDate()),
+                firstNonNull(item.occasion(), shared.occasion()),
+                firstNonNull(item.gift(), shared.gift()),
+                firstNonNull(item.price(), shared.price()),
+                firstNonNull(item.date(), shared.date()),
+                firstNonNull(item.reminderDate(), shared.reminderDate()),
+                firstNonNull(item.thanked(), shared.thanked()));
+    }
+
+    @SafeVarargs
+    private static <T> T firstNonNull(T... values) {
+        for (T value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 항목 하나의 오류를 <b>몇 번째 항목의 어느 칸인지</b> 알 수 있는 형태로 바꾼다.
+     * 프론트는 {@code guests[2].price}를 그 줄의 금액 칸에 그대로 붙이면 된다.
+     */
+    private List<ErrorDetail.FieldError> indexedFields(String arrayName, int index, CustomException e) {
+        if (e.getFields().isEmpty()) {
+            return List.of(new ErrorDetail.FieldError("%s[%d]".formatted(arrayName, index), e.getMessage()));
+        }
+        return e.getFields().stream()
+                .map(field -> new ErrorDetail.FieldError(
+                        "%s[%d].%s".formatted(arrayName, index, field.field()), field.message()))
+                .toList();
+    }
+
+    /** 한 건이라도 문제가 있으면 아무것도 저장하지 않고 전부 모아서 튕긴다. */
+    private void rejectIfAny(List<ErrorDetail.FieldError> errors, int failed, int total) {
+        if (errors.isEmpty()) {
+            return;
+        }
+        throw new CustomException(ErrorCode.INVALID_INPUT,
+                "%d건 중 %d건을 저장하지 못했습니다. 표시된 항목을 고친 뒤 다시 저장해주세요.".formatted(total, failed),
+                errors);
     }
 
     /**
@@ -222,6 +377,18 @@ public class GiftRecordService {
     public GiftRecordResponse update(Long id, GiftRecordUpdateRequest request) {
         String username = SecurityUtils.getCurrentUsername();
         User user = getUser(username);
+
+        GiftRecord record = applyUpdate(user, username, id, request);
+
+        syncReminder(user, record);
+        return toResponse(record);
+    }
+
+    /**
+     * 수정/확정의 본체. 알림 동기화와 응답 변환은 호출한 쪽이 맡는다 —
+     * 벌크 확정이 <b>전 항목을 검증한 뒤에</b> 한꺼번에 동기화할 수 있게 하려는 분리다.
+     */
+    private GiftRecord applyUpdate(User user, String username, Long id, GiftRecordUpdateRequest request) {
         GiftRecord record = giftRecordRepository.findByIdAndUser_Username(id, username)
                 .orElseThrow(() -> new CustomException(ErrorCode.GIFT_RECORD_NOT_FOUND));
 
@@ -255,10 +422,9 @@ public class GiftRecordService {
             record.confirm();
         }
 
-        syncReminder(user, record);
         recommendationCache.evict(username, java.util.Arrays.asList(
                 previousPersonId, sender.person() == null ? null : sender.person().getId()));
-        return toResponse(record);
+        return record;
     }
 
     /**
