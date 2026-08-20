@@ -12,7 +12,7 @@ import java.time.LocalDate;
 public record PersonResponse(
         @Schema(description = "사람 ID", example = "3") Long id,
         @Schema(description = "이름", example = "김민수") String name,
-        @Schema(description = "관계 카테고리 (미지정이면 null)", example = "친구") Relationship relation,
+        @Schema(description = "관계 (미지정이면 null). 기본 관계의 한글 라벨 또는 내가 추가한 관계 이름", example = "친구") String relation,
         @Schema(description = "성별 (미입력이면 null)", example = "남성") Gender gender,
         @Schema(description = "생일", example = "1998-05-10") LocalDate birthday,
         @Schema(description = "메모 (취향/기피 품목 등)", example = "커피를 좋아함") String memo,
@@ -25,7 +25,7 @@ public record PersonResponse(
         return new PersonResponse(
                 person.getId(),
                 person.getName(),
-                person.getRelationship(),
+                Relationship.displayLabel(person.getRelationship()),
                 person.getGender(),
                 person.getBirthday(),
                 person.getMemo(),

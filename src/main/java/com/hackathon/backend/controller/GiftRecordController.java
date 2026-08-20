@@ -6,6 +6,8 @@ import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
+import com.hackathon.backend.dto.gift.GiftRecordPersonLinkRequest;
+import com.hackathon.backend.dto.gift.GiftRecordPersonLinkResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.gift.GiftRecordThankedRequest;
 import com.hackathon.backend.dto.gift.GiftRecordUpdateRequest;
@@ -120,6 +122,21 @@ public class GiftRecordController {
             @Parameter(description = "수정할 기록 ID") @PathVariable Long id,
             @Valid @RequestBody GiftRecordUpdateRequest request) {
         return ApiResponse.success(giftRecordService.update(id, request));
+    }
+
+    @Operation(
+            summary = "보낸 사람을 '사람들'에 연결",
+            description = "이름만 있고 사람으로 등록되지 않은 기록(응답의 personId가 null인 건)을 Person에 연결한다. "
+                    + "경조사는 하객 전원을 사람으로 만들지 않고 리스트에만 두는 게 기본이라, 사용자가 직접 고른 사람만 "
+                    + "이 API로 뒤늦게 매핑한다. personId를 주면 기존 사람에 붙이고, 안 주면 기록에 적힌 이름으로 새로 만든다. "
+                    + "딸린 답례 알림의 대상도 함께 갱신된다."
+    )
+    @PostMapping("/{id}/person")
+    public ApiResponse<GiftRecordPersonLinkResponse> linkPerson(
+            @Parameter(description = "연결할 기록 ID") @PathVariable Long id,
+            @RequestBody(required = false) GiftRecordPersonLinkRequest request) {
+        return ApiResponse.success(giftRecordService.linkPerson(
+                id, request != null ? request : new GiftRecordPersonLinkRequest(null, null, null)));
     }
 
     @Operation(

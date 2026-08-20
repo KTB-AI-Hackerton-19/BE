@@ -1,6 +1,5 @@
 package com.hackathon.backend.dto.gift;
 
-import com.hackathon.backend.domain.Relationship;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDate;
@@ -8,19 +7,30 @@ import java.time.LocalDate;
 /**
  * 기록 모달 "확인/수정" 폼의 저장 요청 (사진 없이 직접 등록할 때도 동일하게 사용).
  *
- * <p>보낸 사람은 personId로 지정해도 되고, 폼처럼 이름을 그대로 보내도 된다(personName).
+ * <p>보낸 사람은 personId로 지정해도 되고, 이름만 보내도 된다(personName/guestName).
+ * <b>이름만 보내면 사람이 새로 만들어지지 않는다</b> — 사람으로 등록하려면 registerPerson=true를 함께 보낸다.
  * personId가 없으면 이름으로 기존 사람을 찾고, 없으면 새로 만든다.</p>
  */
 @Schema(description = "마음 기록 등록 요청")
 public record GiftRecordCreateRequest(
         @Schema(description = "보낸 사람 Person ID. 이미 등록된 사람을 고른 경우에만 사용", example = "3") Long personId,
 
-        @Schema(description = "보낸 사람 이름 (모달의 '보낸 사람' 입력값). personId가 없으면 이 이름으로 찾거나 새로 등록한다", example = "김민수")
+        @Schema(description = "보낸 사람 이름. personId 없이 이 이름만 보내면 <b>사람을 만들지 않고</b> 기록에만 남는다 "
+                + "(경조사 하객처럼 '사람들' 목록에 올리고 싶지 않은 경우). 사람으로 등록하려면 registerPerson=true",
+                example = "김민수")
         String personName,
 
-        @Schema(description = "관계 카테고리 (모달의 '관계' 드롭다운 값). 사람을 새로 만들 때 함께 저장되고, 기존 사람이면 값을 갱신한다. "
-                + "선택지는 GET /api/relationships 참고", example = "친구")
-        Relationship relation,
+        @Schema(description = "personName의 별칭. 사람 미등록 이름이라는 걸 드러내고 싶을 때 쓴다. 둘 다 오면 이 값이 우선",
+                example = "김민수")
+        String guestName,
+
+        @Schema(description = "true면 위 이름으로 Person을 찾거나 새로 만들어 연결한다(= '사람들' 목록에 추가된다). "
+                + "생략하면 false — 이름만 기록에 남는다", example = "false")
+        Boolean registerPerson,
+
+        @Schema(description = "관계 (모달의 '관계' 드롭다운 값). 사람을 새로 만들 때 함께 저장되고, 기존 사람이면 값을 갱신한다. "
+                + "선택지는 GET /api/relationships 참고 — 내가 추가한 관계도 그대로 보내면 된다", example = "친구")
+        String relation,
 
         @Schema(description = "카테고리 ID. GET /api/categories 로 받은 id", example = "1") Long categoryId,
 

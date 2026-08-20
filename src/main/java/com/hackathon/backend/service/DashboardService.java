@@ -1,6 +1,5 @@
 package com.hackathon.backend.service;
 
-import com.hackathon.backend.domain.Person;
 import com.hackathon.backend.domain.ReminderTask;
 import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.dashboard.AgentInsightResponse;
@@ -109,23 +108,26 @@ public class DashboardService {
      * 다가오는 생일과 다가오는 답례일 중 더 가까운 쪽을 골라 문구까지 만들어 내려준다. 둘 다 없으면 null.
      */
     private AgentInsightResponse buildInsight(String username, LocalDate today) {
-        record Candidate(String type, Person person, LocalDate date) {
+        // personId는 사람으로 등록되지 않은 기록이면 null이다(경조사 하객 등). 이름만 있어도 카드는 띄운다.
+        record Candidate(String type, Long personId, String name, LocalDate date) {
         }
 
         Candidate birthday = personRepository.findByUser_UsernameOrderByNameAsc(username).stream()
                 .filter(p -> p.getBirthday() != null)
-                .map(p -> new Candidate("BIRTHDAY", p, nextOccurrence(p.getBirthday(), today)))
+                .map(p -> new Candidate("BIRTHDAY", p.getId(), p.getName(), nextOccurrence(p.getBirthday(), today)))
                 .min(Comparator.comparing(Candidate::date))
                 .orElse(null);
 
         ReminderTask nextReminder = reminderTaskRepository
                 .findByUser_UsernameAndScheduledAtGreaterThanEqualOrderByScheduledAtAsc(username, today)
                 .stream()
-                .filter(task -> task.getPerson() != null)
+                .filter(task -> reminderName(task) != null)
                 .findFirst()
                 .orElse(null);
         Candidate reminder = nextReminder == null ? null
-                : new Candidate("REMINDER", nextReminder.getPerson(), nextReminder.getScheduledAt());
+                : new Candidate("REMINDER",
+                        nextReminder.getPerson() != null ? nextReminder.getPerson().getId() : null,
+                        reminderName(nextReminder), nextReminder.getScheduledAt());
 
         Candidate picked;
         if (birthday == null) {
@@ -140,7 +142,7 @@ public class DashboardService {
         }
 
         int daysLeft = (int) ChronoUnit.DAYS.between(today, picked.date());
-        String shortName = shortName(picked.person().getName());
+        String shortName = shortName(picked.name());
         boolean isBirthday = "BIRTHDAY".equals(picked.type());
 
         String title = isBirthday
@@ -152,8 +154,21 @@ public class DashboardService {
         String caption = isBirthday ? shortName + " 생일" : shortName + " 답례";
 
         return new AgentInsightResponse(
-                picked.type(), picked.person().getId(), picked.person().getName(), picked.date(), daysLeft,
+                picked.type(), picked.personId(), picked.name(), picked.date(), daysLeft,
                 title, message, MONTH_LABELS[picked.date().getMonthValue() - 1], picked.date().getDayOfMonth(), caption);
+    }
+
+    /**
+     * 알림 카드에 쓸 이름. 사람으로 등록된 경우가 우선이고, 아니면 기록에 적힌 이름을 쓴다.
+     *
+     * <p>예전에는 {@code getPerson() != null}로 걸러서, 경조사처럼 사람 미등록 기록에 딸린 답례일은
+     * 아무리 코앞이어도 대시보드에 아예 안 떴다.</p>
+     */
+    private String reminderName(ReminderTask task) {
+        if (task.getPerson() != null) {
+            return task.getPerson().getName();
+        }
+        return task.getGiftRecord() != null ? task.getGiftRecord().displayName() : null;
     }
 
     /** "김민수" → "민수" (디자인의 "민수님의 생일이…" 문구용). 두 글자 이하 이름은 그대로 둔다. */

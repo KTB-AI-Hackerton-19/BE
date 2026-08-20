@@ -234,24 +234,24 @@ public class GoogleCalendarService {
      */
     private ConfirmRequest buildConfirmRequest(GiftRecord record, ReminderTask reminder, String accessToken) {
         Person person = record.getPerson();
-        String personName = person != null ? person.getName() : record.getExtractedSenderName();
+        // 사람으로 등록하지 않은 경조사 기록도 그대로 캘린더에 올라간다 — 이름은 기록에 적힌 것을 쓴다.
+        String personName = record.displayName();
+        String relationship = Relationship.displayLabel(record.displayRelationship());
         LocalDate reminderDate = reminder.getScheduledAt();
 
         GiftData giftData = new GiftData(
                 blankToDefault(record.getGiftName(), "받은 선물"),
                 record.getAmount() != null && record.getAmount() > 0 ? record.getAmount() : MIN_GIFT_PRICE,
-                ageOf(person),
-                person != null && person.getGender() != null
-                        ? person.getGender().name().toLowerCase()
-                        : null,
+                ageOf(person, record),
+                genderOf(person, record),
                 personName,
-                Relationship.labelOf(person != null ? person.getRelationship() : record.getExtractedRelationship()),
+                relationship,
                 record.getReceivedDate(),
                 reminderDate,
                 record.getOccasion());
 
         CalendarDraft calendar = new CalendarDraft(
-                buildTitle(personName),
+                buildTitle(record, personName),
                 buildDescription(record, personName),
                 reminderDate,
                 EVENT_START_TIME,
@@ -277,10 +277,13 @@ public class GoogleCalendarService {
                 DEFAULT_CALENDAR_ID);
     }
 
-    private String buildTitle(String personName) {
-        return personName == null || personName.isBlank()
-                ? "답례 준비"
-                : personName + "님 답례 준비";
+    private String buildTitle(GiftRecord record, String personName) {
+        if (personName != null && !personName.isBlank()) {
+            return personName + "님 답례 준비";
+        }
+        // 이름 없는 기록에 "답례 준비"만 올리면 캘린더에서 무슨 일정인지 알 수 없다. 계기라도 붙여준다.
+        String occasion = record.getOccasion();
+        return occasion == null || occasion.isBlank() ? "답례 준비" : occasion + " 답례 준비";
     }
 
     private String buildDescription(GiftRecord record, String personName) {
@@ -302,12 +305,29 @@ public class GoogleCalendarService {
         return sb.toString();
     }
 
-    private Integer ageOf(Person person) {
-        if (person == null || person.getBirthday() == null) {
-            return null;
+    /**
+     * 나이. 등록된 사람의 생일이 우선이고, 없으면 AI가 사진에서 추정한 나이를 쓴다.
+     *
+     * <p>사람 미등록 기록은 생일이 있을 수 없어서 person만 보면 항상 비어 나간다.
+     * AI 서비스는 이 값으로 답례 선물을 고르므로, 추정치라도 넘기는 편이 낫다.</p>
+     */
+    private Integer ageOf(Person person, GiftRecord record) {
+        if (person != null && person.getBirthday() != null) {
+            int age = Period.between(person.getBirthday(), LocalDate.now()).getYears();
+            if (age >= 0 && age <= 120) {
+                return age;
+            }
         }
-        int age = Period.between(person.getBirthday(), LocalDate.now()).getYears();
-        return age >= 0 && age <= 120 ? age : null;
+        Integer extracted = record.getExtractedAge();
+        return extracted != null && extracted >= 0 && extracted <= 120 ? extracted : null;
+    }
+
+    /** 성별도 같은 이유로 AI 추정치까지 폴백한다(그동안 extractedGender를 뽑아만 두고 안 쓰고 있었다). */
+    private String genderOf(Person person, GiftRecord record) {
+        if (person != null && person.getGender() != null) {
+            return person.getGender().name().toLowerCase();
+        }
+        return record.getExtractedGender() != null ? record.getExtractedGender().name().toLowerCase() : null;
     }
 
     private String blankToDefault(String value, String fallback) {

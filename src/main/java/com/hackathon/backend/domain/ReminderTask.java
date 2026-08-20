@@ -99,6 +99,16 @@ public class ReminderTask {
         this.delivered = false;
     }
 
+    /**
+     * 사람만 갈아끼운다. 리스트에만 있던 이름을 뒤늦게 Person에 연결할 때 쓴다.
+     *
+     * <p>{@link #reschedule}를 대신 쓰면 안 된다. 그쪽은 상태를 PENDING으로 되돌려서,
+     * 이미 발송된 알림이 사람 연결 한 번에 다시 발송 대기로 살아난다.</p>
+     */
+    public void assignPerson(Person person) {
+        this.person = person;
+    }
+
     /** 구글 캘린더 등록/갱신 결과를 붙인다. */
     public void linkGoogleEvent(String googleEventId, String googleHtmlLink) {
         this.googleEventId = googleEventId;

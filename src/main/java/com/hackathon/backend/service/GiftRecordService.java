@@ -9,7 +9,6 @@ import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.domain.Person;
-import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.domain.ReminderTask;
 import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.PageResponse;
@@ -17,6 +16,8 @@ import com.hackathon.backend.dto.category.CategoryResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
+import com.hackathon.backend.dto.gift.GiftRecordPersonLinkRequest;
+import com.hackathon.backend.dto.gift.GiftRecordPersonLinkResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.gift.GiftRecordUpdateRequest;
 import com.hackathon.backend.exception.CustomException;
@@ -59,6 +60,7 @@ public class GiftRecordService {
     private final UserRepository userRepository;
     private final PersonService personService;
     private final CategoryService categoryService;
+    private final RelationshipService relationshipService;
     private final S3PresignService s3PresignService;
     private final AiExtractionClient aiExtractionClient;
 
@@ -71,7 +73,8 @@ public class GiftRecordService {
 
     public GiftRecordService(GiftRecordRepository giftRecordRepository, ReminderTaskRepository reminderTaskRepository,
                              UserRepository userRepository, PersonService personService,
-                             CategoryService categoryService, S3PresignService s3PresignService,
+                             CategoryService categoryService, RelationshipService relationshipService,
+                             S3PresignService s3PresignService,
                              AiExtractionClient aiExtractionClient,
                              GoogleCalendarService googleCalendarService,
                              @Value("${ai.service.pre-request-delay-ms:15000}") long preRequestDelayMs) {
@@ -80,13 +83,17 @@ public class GiftRecordService {
         this.userRepository = userRepository;
         this.personService = personService;
         this.categoryService = categoryService;
+        this.relationshipService = relationshipService;
         this.s3PresignService = s3PresignService;
         this.aiExtractionClient = aiExtractionClient;
         this.googleCalendarService = googleCalendarService;
         this.preRequestDelayMs = preRequestDelayMs;
     }
 
-    /** 기록 모달 저장 / 직접 등록. 보낸 사람은 personId 또는 이름으로 지정하며, 없는 이름이면 새 Person을 만든다. */
+    /**
+     * 기록 모달 저장 / 직접 등록. 보낸 사람은 personId로 고르거나 이름만 적어도 된다.
+     * 이름만 적으면 <b>사람을 만들지 않고</b> 기록에만 남는다({@link #resolveSender} 참고).
+     */
     @Transactional
     public GiftRecordResponse create(GiftRecordCreateRequest request) {
         String username = SecurityUtils.getCurrentUsername();
@@ -94,11 +101,17 @@ public class GiftRecordService {
 
         validateDates(request.date(), request.reminderDate());
 
-        Person person = personService.resolveOrCreate(user, request.personId(), request.personName(), request.relation());
+        Sender sender = resolveSender(user, request.personId(), request.personName(), request.guestName(),
+                request.registerPerson(), request.relation());
+        if (sender.person() == null && sender.guestName() == null) {
+            throw new CustomException(ErrorCode.INVALID_INPUT, "보낸 사람(personId 또는 이름)을 입력해주세요.");
+        }
         Category category = categoryService.resolveOrFallback(request.categoryId(), request.category());
 
         GiftRecord record = GiftRecord.createConfirmed(
-                user, person, category, trimToNull(request.occasion()), trimToNull(request.gift()),
+                user, sender.person(), sender.guestName(),
+                sender.person() == null ? relationshipService.normalize(request.relation()) : null,
+                category, trimToNull(request.occasion()), trimToNull(request.gift()),
                 MoneyFormatter.parse(request.price()), request.date(), request.reminderDate(),
                 Boolean.TRUE.equals(request.thanked()));
         giftRecordRepository.save(record);
@@ -146,7 +159,8 @@ public class GiftRecordService {
 
             GiftRecord record = GiftRecord.createDraft(
                     user, person, request.imageKey(), result.senderName(),
-                    Relationship.from(result.relationship()), result.age(), Gender.from(result.gender()), category,
+                    relationshipService.normalize(result.relationship()), result.age(), Gender.from(result.gender()),
+                    category,
                     occasion, result.giftName(), result.amount(),
                     receivedDate, receivedDate.plusDays(DEFAULT_REMINDER_OFFSET_DAYS));
             giftRecordRepository.save(record);
@@ -195,11 +209,13 @@ public class GiftRecordService {
 
         validateDates(request.date(), request.reminderDate());
 
-        Person person = personService.resolveOrCreateNullable(
-                user, request.personId(), request.personName(), request.relation());
+        Sender sender = resolveSender(user, request.personId(), request.personName(), request.guestName(),
+                request.registerPerson(), request.relation());
         Category category = categoryService.resolve(request.categoryId(), request.category());
 
-        record.applyUpdate(person, category, trimToNull(request.occasion()), trimToNull(request.gift()),
+        record.applyUpdate(sender.person(), sender.guestName(),
+                sender.person() == null ? relationshipService.normalize(request.relation()) : null,
+                category, trimToNull(request.occasion()), trimToNull(request.gift()),
                 MoneyFormatter.parse(request.price()), request.date(), request.reminderDate(), request.thanked());
 
         if (request.confirm() == null || request.confirm()) {
@@ -208,6 +224,87 @@ public class GiftRecordService {
 
         syncReminder(user, record);
         return toResponse(record);
+    }
+
+    /** {@link #resolveSender} 결과. 둘 중 하나만 채워지며, 둘 다 null이면 "보낸 사람 정보가 안 왔다"는 뜻이다. */
+    private record Sender(Person person, String guestName) {
+    }
+
+    /**
+     * 보낸 사람 결정. <b>이름만으로는 Person을 만들지 않는다.</b>
+     *
+     * <p>예전에는 이름이 오면 없는 사람을 그 자리에서 만들었는데, 사진 한 장에서 여러 명을 뽑는
+     * 경조사에서는 그게 치명적이다. 축의금 50건을 확인 폼에서 저장하는 순간 "사람들" 목록에 50명이
+     * 쌓여서 목록이 못 쓰게 된다. 경조사 하객은 대부분 다시 볼 일이 없어 사람으로 관리할 대상이 아니다.</p>
+     *
+     * <p>그래서 기본은 <b>이름만 기록에 남기고(guestName) 매핑하지 않는 것</b>이고, 사람으로 올리는 건
+     * 사용자가 명시적으로 고를 때만이다 — 드롭다운에서 기존 사람을 고르거나(personId),
+     * "사람으로 등록"을 누르거나(registerPerson=true), 나중에 {@link #linkPerson}으로 연결하거나.</p>
+     */
+    private Sender resolveSender(User user, Long personId, String personName, String guestName,
+                                 Boolean registerPerson, String relation) {
+        String name = trimToNull(guestName != null ? guestName : personName);
+        if (personId != null) {
+            return new Sender(personService.resolveOrCreateNullable(user, personId, null, relation), null);
+        }
+        if (Boolean.TRUE.equals(registerPerson) && name != null) {
+            return new Sender(personService.resolveOrCreateNullable(user, null, name, relation), null);
+        }
+        return new Sender(null, name);
+    }
+
+    /**
+     * 이름만 있던 기록을 사람(Person)에 연결한다 — 경조사 리스트의 "사람으로 등록" 버튼.
+     *
+     * <p>personId를 주면 이미 등록된 사람에 붙이고, 안 주면 기록에 적힌 이름으로 사람을 만든다.
+     * 딸린 답례 알림의 대상도 같이 갈아끼워서, 연결 후 대시보드·추천에서 이 사람이 보이게 한다.</p>
+     *
+     * <p>{@code applySameName=true}면 같은 이름으로 남아 있는 다른 미등록 기록까지 함께 묶는다.
+     * 한 사람이 결혼식과 돌잔치에 각각 잡힌 경우 하나씩 누르지 않아도 되게 하려는 것이다.</p>
+     */
+    @Transactional
+    public GiftRecordPersonLinkResponse linkPerson(Long id, GiftRecordPersonLinkRequest request) {
+        String username = SecurityUtils.getCurrentUsername();
+        User user = getUser(username);
+        GiftRecord record = giftRecordRepository.findByIdAndUser_Username(id, username)
+                .orElseThrow(() -> new CustomException(ErrorCode.GIFT_RECORD_NOT_FOUND));
+
+        String name = record.displayName();
+        boolean created;
+        Person person;
+        if (request.personId() != null) {
+            person = personService.resolveOrCreateNullable(user, request.personId(), null, request.relation());
+            created = false;
+        } else {
+            if (name == null || name.isBlank()) {
+                throw new CustomException(ErrorCode.INVALID_INPUT,
+                        "연결할 이름이 없습니다. 기록의 보낸 사람 이름을 먼저 채우거나 personId를 보내주세요.");
+            }
+            created = personService.findByExactName(user, name) == null;
+            person = personService.resolveOrCreateNullable(user, null, name, request.relation());
+        }
+
+        List<GiftRecord> targets = new ArrayList<>();
+        targets.add(record);
+        if (Boolean.TRUE.equals(request.applySameName()) && name != null && !name.isBlank()) {
+            giftRecordRepository.findByUser_UsernameAndPersonIsNull(username).stream()
+                    .filter(other -> !other.getId().equals(record.getId()))
+                    .filter(other -> name.equals(other.displayName()))
+                    .forEach(targets::add);
+        }
+
+        for (GiftRecord target : targets) {
+            target.linkPerson(person);
+            // 알림은 reschedule이 아니라 assignPerson으로 건드린다 — 이미 발송된 알림이 되살아나면 안 된다.
+            reminderTaskRepository.findByGiftRecord_Id(target.getId())
+                    .ifPresent(task -> task.assignPerson(person));
+        }
+
+        log.info("사람 연결 — '{}' → personId {} ({}), 기록 {}건", name, person.getId(),
+                created ? "신규" : "기존", targets.size());
+
+        return new GiftRecordPersonLinkResponse(person.getId(), person.getName(), created, targets.size(),
+                targets.stream().map(t -> toResponse(t, false)).toList());
     }
 
     /** "감사 완료" / "확인 필요" 뱃지 토글. */

@@ -25,6 +25,10 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
      * 필터와 무관하게 목록에서 통째로 빠진다.</b> 사진 한 장에서 여러 명을 뽑으면 대부분 이 상태라,
      * "카테고리 카드는 6건인데 목록엔 2건만 보인다" 같은 불일치로 나타난다.</p>
      */
+    /** 아직 사람에 연결되지 않은 기록들. 같은 이름을 한 번에 묶어줄 때 후보로 쓴다. */
+    @EntityGraph(attributePaths = {"person", "category"})
+    List<GiftRecord> findByUser_UsernameAndPersonIsNull(String username);
+
     @EntityGraph(attributePaths = {"person", "category"})
     @Query("""
             select r from GiftRecord r
@@ -38,11 +42,16 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
               and (:allKinds = true or c.kind in :kinds)
               and (:startDate is null or r.receivedDate >= :startDate)
               and (:endDate is null or r.receivedDate <= :endDate)
-              and (:personName is null or lower(p.name) like lower(concat('%', :personName, '%')))
+              and (:personName is null
+                   or lower(p.name) like lower(concat('%', :personName, '%'))
+                   or lower(r.guestName) like lower(concat('%', :personName, '%'))
+                   or lower(r.extractedSenderName) like lower(concat('%', :personName, '%')))
               and (:keyword is null
                    or lower(r.giftName) like lower(concat('%', :keyword, '%'))
                    or lower(r.occasion) like lower(concat('%', :keyword, '%'))
-                   or lower(p.name) like lower(concat('%', :keyword, '%')))
+                   or lower(p.name) like lower(concat('%', :keyword, '%'))
+                   or lower(r.guestName) like lower(concat('%', :keyword, '%'))
+                   or lower(r.extractedSenderName) like lower(concat('%', :keyword, '%')))
             """)
     Page<GiftRecord> search(@Param("username") String username,
                             @Param("status") GiftRecordStatus status,

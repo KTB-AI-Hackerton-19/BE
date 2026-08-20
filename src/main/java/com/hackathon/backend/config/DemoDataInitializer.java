@@ -71,7 +71,11 @@ public class DemoDataInitializer {
 
     private static final String DEMO_PASSWORD_SUFFIX = "1234";
 
-    /** 사람: 이름, 관계, 성별(없으면 null), 생일(오늘로부터 +N일, 없으면 null), 메모 */
+    /**
+     * 사람: 이름, 관계, 성별(없으면 null), 생일(오늘로부터 +N일, 없으면 null), 메모.
+     * 관계는 드롭다운({@code GET /api/relationships})에 실제로 있는 값이어야 한다 — 서버가 비슷한 값으로
+     * 맞춰주지 않으므로, "회사 동료" 같은 자유 표현을 적으면 관계 미지정으로 저장된다.
+     */
     private record PersonSeed(String name, String relation, Gender gender, Integer birthdayInDays, String memo) {
     }
 
@@ -86,13 +90,13 @@ public class DemoDataInitializer {
 
     private static final List<PersonSeed> PEOPLE = List.of(
             // 김민수는 AI 더미 응답이 뱉는 이름이라 반드시 있어야 이미지 업로드 흐름에서 자동 매칭이 보인다.
-            new PersonSeed("김민수", "친한 친구", Gender.MALE, 26, "커피 좋아함. 단 거는 별로"),
-            new PersonSeed("박지영", "회사 동료", Gender.FEMALE, 9, "고양이 두 마리 키움"),
-            new PersonSeed("이서준", "대학 선배", Gender.MALE, 73, null),
-            new PersonSeed("최유나", "사촌 동생", Gender.FEMALE, 41, "향수 취향 확실함"),
-            new PersonSeed("정하늘", "동호회 친구", null, null, "러닝 크루에서 만남"),
-            new PersonSeed("윤도현", "회사 팀장", Gender.MALE, 130, null),
-            new PersonSeed("한소희", "고등학교 친구", Gender.FEMALE, 55, "디저트 카페 자주 감")
+            new PersonSeed("김민수", Relationship.FRIEND.getLabel(), Gender.MALE, 26, "커피 좋아함. 단 거는 별로"),
+            new PersonSeed("박지영", Relationship.WORK.getLabel(), Gender.FEMALE, 9, "고양이 두 마리 키움"),
+            new PersonSeed("이서준", Relationship.SCHOOL.getLabel(), Gender.MALE, 73, null),
+            new PersonSeed("최유나", Relationship.RELATIVE.getLabel(), Gender.FEMALE, 41, "향수 취향 확실함"),
+            new PersonSeed("정하늘", Relationship.FRIEND.getLabel(), null, null, "러닝 크루에서 만남"),
+            new PersonSeed("윤도현", Relationship.WORK.getLabel(), Gender.MALE, 130, null),
+            new PersonSeed("한소희", Relationship.SCHOOL.getLabel(), Gender.FEMALE, 55, "디저트 카페 자주 감")
     );
 
     private static final List<RecordSeed> RECORDS = List.of(
@@ -141,26 +145,38 @@ public class DemoDataInitializer {
     private static final List<String> GIVEN_NAMES =
             List.of("민수", "지영", "서준", "유나", "하늘", "도현", "소희", "예린", "태호", "수진", "지훈", "다은",
                     "현우", "채원", "준영", "서윤", "건우", "하린", "시우", "지안");
-    private static final List<Relationship> RELATIONS =
-            List.of(Relationship.WORK, Relationship.SCHOOL, Relationship.FRIEND, Relationship.RELATIVE,
-                    Relationship.NEIGHBOR, Relationship.BUSINESS, Relationship.FAMILY);
+    private static final List<String> RELATIONS =
+            List.of(Relationship.WORK.getLabel(), Relationship.SCHOOL.getLabel(), Relationship.FRIEND.getLabel(),
+                    Relationship.RELATIVE.getLabel(), Relationship.NEIGHBOR.getLabel(),
+                    Relationship.BUSINESS.getLabel(), Relationship.FAMILY.getLabel());
     private static final List<String> GIFT_NAMES =
             List.of("핸드크림 세트", "커피 원두", "머그컵", "무릎담요", "디퓨저", "티 세트", "양말 세트", "떡 세트",
                     "과일 바구니", "케이크", "화분", "향초", "책", "문구 세트", "에코백");
 
+    /** 데모에서 실제로 "사람들" 목록에 올라가는 인원. 나머지 경조사 하객은 기록에 이름만 남는다. */
+    private static final int REGISTERED_PEOPLE = 20;
+
     /**
      * 큰 이벤트 하나에 수십 명이 몰리는 실제 모양을 만든다.
      * 결혼식 축의금 45건 + 장례식 조의금 25건 + 일반 선물 30건 ≈ 100건.
+     *
+     * <p>이 중 <b>사람(Person)으로 등록되는 건 20명뿐</b>이다. 경조사 하객까지 전부 사람으로 만들면
+     * "사람들" 목록이 70명짜리 하객 명단이 되어 못 쓰게 된다. 나머지는 기록에 이름만 있는 미등록 상태로 두어
+     * 경조사 리스트에서만 보이게 하고, 필요한 사람만 {@code POST /api/gift-records/{id}/person}으로
+     * 연결한다 — 실제 사용 모양이 그렇기 때문에 데모 데이터도 같은 모양으로 만든다.</p>
      */
     private int seedBulk(User user, Map<String, Category> categories, PersonRepository personRepository,
                          GiftRecordRepository giftRecordRepository, ReminderTaskRepository reminderTaskRepository,
                          LocalDate today) {
         Random rnd = new Random(42);   // 고정 시드 — 재기동해도 같은 데이터가 나온다
-        List<Person> pool = new ArrayList<>();
+        List<String> names = new ArrayList<>();
         for (int i = 0; i < 75; i++) {
-            String pname = SURNAMES.get(rnd.nextInt(SURNAMES.size()))
-                    + GIVEN_NAMES.get(rnd.nextInt(GIVEN_NAMES.size())) + (i + 1);
-            pool.add(personRepository.save(new Person(user, pname,
+            names.add(SURNAMES.get(rnd.nextInt(SURNAMES.size()))
+                    + GIVEN_NAMES.get(rnd.nextInt(GIVEN_NAMES.size())) + (i + 1));
+        }
+        List<Person> registered = new ArrayList<>();
+        for (int i = 0; i < REGISTERED_PEOPLE; i++) {
+            registered.add(personRepository.save(new Person(user, names.get(i),
                     RELATIONS.get(rnd.nextInt(RELATIONS.size())),
                     rnd.nextBoolean() ? Gender.MALE : Gender.FEMALE,
                     today.plusDays(rnd.nextInt(365)), null)));
@@ -174,11 +190,13 @@ public class DemoDataInitializer {
         Category wedding = categories.get("내 결혼식");
         LocalDate weddingDay = today.minusDays(31);
         for (int i = 0; i < 45; i++) {
-            Person p = pool.get(i);
+            // 앞 20명만 등록된 사람이고, 나머지는 이름만 있는 하객이다(personId가 null로 내려간다).
+            Person p = i < REGISTERED_PEOPLE ? registered.get(i) : null;
+            String guest = p == null ? names.get(i) : null;
             boolean thanked = rnd.nextInt(10) < 4;
             LocalDate remind = thanked ? null : today.plusDays(7 + rnd.nextInt(21));
             GiftRecord r = giftRecordRepository.save(GiftRecord.createConfirmed(
-                    user, p, wedding, "결혼 축의금", "축의금",
+                    user, p, guest, null, wedding, "결혼 축의금", "축의금",
                     congratulation[rnd.nextInt(congratulation.length)], weddingDay, remind, thanked));
             records.add(r);
             if (remind != null) {
@@ -190,20 +208,20 @@ public class DemoDataInitializer {
         Category funeral = categories.get("아버지 장례식");
         LocalDate funeralDay = today.minusDays(15);
         for (int i = 45; i < 70; i++) {
-            Person p = pool.get(i);
             boolean thanked = rnd.nextInt(10) < 5;
             GiftRecord r = giftRecordRepository.save(GiftRecord.createConfirmed(
-                    user, p, funeral, "부친상 조의금", "조의금",
+                    user, null, names.get(i), null, funeral, "부친상 조의금", "조의금",
                     congratulation[rnd.nextInt(4)], funeralDay, thanked ? null : today.plusDays(9), thanked));
             records.add(r);
         }
 
         // 일반 선물 30건 — 카테고리와 날짜를 흩뿌린다
         List<Category> giftCategories = categories.values().stream().filter(c -> !c.getKind().isEvent()).toList();
+        // 선물은 사용자가 직접 등록해 관리하는 관계라, 전부 등록된 사람에 붙인다.
         for (int i = 0; i < 30; i++) {
-            Person p = pool.get(rnd.nextInt(pool.size()));
+            Person p = registered.get(rnd.nextInt(registered.size()));
             records.add(giftRecordRepository.save(GiftRecord.createConfirmed(
-                    user, p, giftCategories.get(rnd.nextInt(giftCategories.size())),
+                    user, p, null, null, giftCategories.get(rnd.nextInt(giftCategories.size())),
                     "생일 선물", GIFT_NAMES.get(rnd.nextInt(GIFT_NAMES.size())),
                     15000 + rnd.nextInt(9) * 10000, today.minusDays(rnd.nextInt(300)), null, rnd.nextBoolean())));
         }
@@ -236,7 +254,7 @@ public class DemoDataInitializer {
         for (PersonSeed seed : PEOPLE) {
             LocalDate birthday = seed.birthdayInDays() == null ? null : today.plusDays(seed.birthdayInDays());
             people.put(seed.name(),
-                    personRepository.save(new Person(user, seed.name(), Relationship.from(seed.relation()), seed.gender(),
+                    personRepository.save(new Person(user, seed.name(), seed.relation(), seed.gender(),
                             birthday, seed.memo())));
         }
 
@@ -247,7 +265,7 @@ public class DemoDataInitializer {
             LocalDate reminderDate = seed.reminderInDays() == null ? null : today.plusDays(seed.reminderInDays());
 
             GiftRecord record = giftRecordRepository.save(GiftRecord.createConfirmed(
-                    user, person, category, seed.occasion(), seed.gift(), seed.amount(),
+                    user, person, null, null, category, seed.occasion(), seed.gift(), seed.amount(),
                     today.minusDays(seed.receivedDaysAgo()), reminderDate, seed.thanked()));
 
             // 답례가 끝난 기록에는 알림을 만들지 않는다(이미 챙긴 건 다시 알릴 이유가 없다).

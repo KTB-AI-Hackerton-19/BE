@@ -1,6 +1,5 @@
 package com.hackathon.backend.dto.gift;
 
-import com.hackathon.backend.domain.Relationship;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 
@@ -11,8 +10,15 @@ import java.time.LocalDate;
 @Schema(description = "마음 기록 수정/확정 요청 (부분 수정)")
 public record GiftRecordUpdateRequest(
         @Schema(description = "보낸 사람 Person ID", example = "3") Long personId,
-        @Schema(description = "보낸 사람 이름. personId 대신 이름으로 지정 가능 (없으면 새로 등록)", example = "김민수") String personName,
-        @Schema(description = "관계 카테고리 (GET /api/relationships 의 라벨)", example = "친구") Relationship relation,
+        @Schema(description = "보낸 사람 이름. personId 없이 이 이름만 보내면 <b>사람을 만들지 않고</b> 기록에만 남는다. "
+                + "사람으로 등록하려면 registerPerson=true", example = "김민수") String personName,
+
+        @Schema(description = "personName의 별칭(사람 미등록 이름). 둘 다 오면 이 값이 우선", example = "김민수")
+        String guestName,
+
+        @Schema(description = "true면 위 이름으로 Person을 만들어 연결한다. 생략하면 false", example = "false")
+        Boolean registerPerson,
+        @Schema(description = "관계 (GET /api/relationships 의 value)", example = "친구") String relation,
         @Schema(description = "카테고리 ID", example = "1") Long categoryId,
         @Schema(description = "카테고리 이름 (categoryId 대신 사용 가능)", example = "디저트") String category,
         @Schema(description = "받은 이유 (자유 텍스트)", example = "내 생일") String occasion,

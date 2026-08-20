@@ -14,7 +14,7 @@ public record ReminderTaskResponse(
         @Schema(description = "알림 ID", example = "1") Long id,
         @Schema(description = "답례 대상 Person ID", example = "3") Long personId,
         @Schema(description = "답례 대상 이름", example = "김민수") String person,
-        @Schema(description = "관계 카테고리", example = "친구") Relationship relation,
+        @Schema(description = "관계", example = "친구") String relation,
         @Schema(description = "이 알림을 만든 기록 ID", example = "1") Long giftRecordId,
         @Schema(description = "받았던 선물명 (무엇에 대한 답례인지)", example = "스타벅스 케이크") String gift,
         @Schema(description = "알림 예정일", example = "2026-09-14") LocalDate scheduledAt,
@@ -23,13 +23,16 @@ public record ReminderTaskResponse(
         @Schema(description = "원본 기록의 감사 완료 여부", example = "false") boolean thanked
 ) {
     public static ReminderTaskResponse of(ReminderTask task, LocalDate today) {
-        Person person = task.getPerson();
         GiftRecord record = task.getGiftRecord();
+        Person person = task.getPerson();
         return new ReminderTaskResponse(
                 task.getId(),
                 person != null ? person.getId() : null,
-                person != null ? person.getName() : null,
-                person != null ? person.getRelationship() : null,
+                // 사람 미등록 기록이면 기록에 적힌 이름으로 채운다(안 그러면 답례 목록에 이름이 빈다).
+                person != null ? person.getName() : (record != null ? record.displayName() : null),
+                Relationship.displayLabel(person != null
+                        ? person.getRelationship()
+                        : (record != null ? record.displayRelationship() : null)),
                 record != null ? record.getId() : null,
                 record != null ? record.getGiftName() : null,
                 task.getScheduledAt(),

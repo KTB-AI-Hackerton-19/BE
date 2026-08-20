@@ -114,7 +114,8 @@ public class CalendarService {
                 task.getId(), TYPE_TO_GIVE, task.getScheduledAt(),
                 record != null ? record.getId() : null,
                 person != null ? person.getId() : null,
-                person != null ? person.getName() : null,
+                // 사람으로 등록하지 않은 기록도 이름은 보여야 한다. person만 읽으면 경조사 답례일이 이름 없이 뜬다.
+                person != null ? person.getName() : (record != null ? record.displayName() : null),
                 record != null ? record.getGiftName() : null,
                 record != null ? record.getOccasion() : null,
                 category != null ? category.getName() : null,

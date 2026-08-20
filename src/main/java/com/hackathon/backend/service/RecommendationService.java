@@ -346,7 +346,7 @@ public class RecommendationService {
                 latest != null ? latest.getGiftName() : null,
                 amount,
                 person != null ? person.getName() : null,
-                Relationship.labelOf(person != null ? person.getRelationship() : null),
+                person != null ? Relationship.displayLabel(person.getRelationship()) : null,
                 // 생일이면 그 사실을 AI에 알린다. 아니면 받은 기록의 이유를 그대로 쓴다.
                 event != null ? event : (latest != null ? latest.getOccasion() : null),
                 interestsOf(person));

@@ -62,10 +62,9 @@ public class GiftRecord {
     @Column
     private String extractedSenderName;
 
-    /** AI가 추측한 관계 (확정 전 참고용). AI는 자유 텍스트를 주지만 저장할 땐 카테고리로 맞춰 넣는다 */
-    @Enumerated(EnumType.STRING)
-    @Column(length = 20)
-    private Relationship extractedRelationship;
+    /** AI가 추측한 관계 (확정 전 참고용). AI는 자유 텍스트를 주지만 저장할 땐 드롭다운에 있는 값으로 맞춰 넣는다 */
+    @Column(length = 50)
+    private String extractedRelationship;
 
     /**
      * AI가 추정한 보낸 사람의 나이·성별 (확정 전 참고용).
@@ -80,6 +79,23 @@ public class GiftRecord {
     @Enumerated(EnumType.STRING)
     @Column(length = 10)
     private Gender extractedGender;
+
+    /**
+     * 사람(Person)으로 등록하지 않은 보낸 사람 이름.
+     *
+     * <p>경조사는 한 번에 수십 명이 들어오는데 그 전원을 "사람들" 목록에 올릴 이유가 없다.
+     * 그래서 <b>이름만 기록에 들고</b> 경조사 리스트에서만 보이게 하고, 나중에 사용자가 직접 고른 사람만
+     * {@code POST /api/gift-records/{id}/person}으로 Person에 연결한다.</p>
+     *
+     * <p>{@link #extractedSenderName}과 나눈 이유: 그쪽은 <b>AI가 읽어낸 원본</b>이라 손대지 않는다
+     * (오탈자 대조와 나중의 재매칭에 쓴다). 사용자가 고쳐 적은 이름은 여기로 들어온다.</p>
+     */
+    @Column(length = 100)
+    private String guestName;
+
+    /** 사람 미등록 상태에서 사용자가 지정한 관계. Person 없이도 답례 문구·추천 근거가 비지 않게 한다. */
+    @Column(length = 50)
+    private String guestRelationship;
 
     /** 받은 이유 - 자유 텍스트 (예: 내 생일, 프로젝트 축하, 결혼식) */
     @Column(length = 200)
@@ -112,12 +128,15 @@ public class GiftRecord {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
-    public static GiftRecord createConfirmed(User user, Person person, Category category, String occasion,
+    public static GiftRecord createConfirmed(User user, Person person, String guestName,
+                                             String guestRelationship, Category category, String occasion,
                                              String giftName, Integer amount, LocalDate receivedDate,
                                              LocalDate reminderDate, boolean thanked) {
         GiftRecord record = new GiftRecord();
         record.user = user;
         record.person = person;
+        record.guestName = guestName;
+        record.guestRelationship = guestRelationship;
         record.category = category;
         record.occasion = occasion;
         record.giftName = giftName;
@@ -131,7 +150,7 @@ public class GiftRecord {
     }
 
     public static GiftRecord createDraft(User user, Person person, String imageKey, String extractedSenderName,
-                                         Relationship extractedRelationship, Integer extractedAge,
+                                         String extractedRelationship, Integer extractedAge,
                                          Gender extractedGender, Category category, String occasion,
                                          String giftName, Integer amount, LocalDate receivedDate,
                                          LocalDate reminderDate) {
@@ -143,6 +162,8 @@ public class GiftRecord {
         record.extractedRelationship = extractedRelationship;
         record.extractedAge = extractedAge;
         record.extractedGender = extractedGender;
+        // 사람으로 등록하지 않아도 리스트에서 바로 이름이 보이고 수정도 되도록, AI 이름을 표시 이름의 초기값으로 둔다.
+        record.guestName = extractedSenderName;
         record.category = category;
         record.occasion = occasion;
         record.giftName = giftName;
@@ -156,10 +177,17 @@ public class GiftRecord {
     }
 
     /** 확인/수정 폼 저장 — null로 들어온 필드는 기존 값을 유지한다(부분 수정 PATCH 시맨틱). */
-    public void applyUpdate(Person person, Category category, String occasion, String giftName,
-                            Integer amount, LocalDate receivedDate, LocalDate reminderDate, Boolean thanked) {
+    public void applyUpdate(Person person, String guestName, String guestRelationship, Category category,
+                            String occasion, String giftName, Integer amount, LocalDate receivedDate,
+                            LocalDate reminderDate, Boolean thanked) {
         if (person != null) {
             this.person = person;
+        }
+        if (guestName != null) {
+            this.guestName = guestName;
+        }
+        if (guestRelationship != null) {
+            this.guestRelationship = guestRelationship;
         }
         if (category != null) {
             this.category = category;
@@ -182,6 +210,40 @@ public class GiftRecord {
         if (thanked != null) {
             this.thanked = thanked;
         }
+    }
+
+    /**
+     * 화면·캘린더·알림에 쓸 보낸 사람 이름. 등록된 사람 → 사용자가 적은 이름 → AI 원본 순으로 고른다.
+     *
+     * <p>이 폴백을 한 군데로 모아둔 이유는, 예전에 호출부마다 {@code person.getName()}만 읽어서
+     * 사람 미등록 기록이 캘린더·알림 목록에서 이름 없이 나가는 누락이 반복됐기 때문이다.</p>
+     */
+    public String displayName() {
+        if (person != null) {
+            return person.getName();
+        }
+        if (guestName != null && !guestName.isBlank()) {
+            return guestName;
+        }
+        return extractedSenderName;
+    }
+
+    /** 위와 같은 순서로 고른 관계. */
+    public String displayRelationship() {
+        if (person != null && person.getRelationship() != null) {
+            return person.getRelationship();
+        }
+        return guestRelationship != null ? guestRelationship : extractedRelationship;
+    }
+
+    /**
+     * 리스트에만 있던 이름을 사람(Person)에 연결한다.
+     *
+     * <p>{@link #guestName}은 지우지 않는다. 사용자가 사람을 지웠을 때 기록이 이름 없는 껍데기로 남지 않게
+     * 되돌아갈 자리가 필요하기 때문이다.</p>
+     */
+    public void linkPerson(Person person) {
+        this.person = person;
     }
 
     public void confirm() {
