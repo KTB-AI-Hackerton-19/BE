@@ -18,9 +18,9 @@ spring:
         format_sql: true
 
 jwt:
-  secret: ${JWT_SECRET:hackathon-demo-secret-key-please-change-before-production-use-1234567890}
-  access-token-expiration-ms: 43200000   # 12h
-  refresh-token-expiration-ms: 604800000 # 7d
+  secret: ${JWT_SECRET:}
+  access-token-expiration-ms: 43200000
+  refresh-token-expiration-ms: 604800000
 
 aws:
   region: ${AWS_REGION:ap-northeast-2}
@@ -30,7 +30,7 @@ aws:
 ai:
   service:
     url: ${AI_SERVICE_URL:http://13.209.6.148:8000}
-    api-key: ${AI_SERVICE_API_KEY:f3b9c7e1a8d462b5c0e9f8a7d3b2c1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4}
+    api-key: ${AI_SERVICE_API_KEY:}
     timeout-ms: ${AI_SERVICE_TIMEOUT_MS:60000}
     pre-request-delay-ms: ${AI_PRE_REQUEST_DELAY_MS:5000}
 
@@ -42,7 +42,7 @@ google:
   oauth:
     client-id: ${GOOGLE_CLIENT_ID:}
     client-secret: ${GOOGLE_CLIENT_SECRET:}
-    redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:8080/api/integrations/google/callback}
-    frontend-redirect-uri: ${GOOGLE_FRONTEND_REDIRECT_URI:http://localhost:5174/mypage}
-    scope: ${GOOGLE_OAUTH_SCOPE:https://www.googleapis.com/auth/calendar.events email}
+    redirect-uri: ${GOOGLE_REDIRECT_URI:}
+    frontend-redirect-uri: ${GOOGLE_FRONTEND_REDIRECT_URI:}
+    scope: ${GOOGLE_OAUTH_SCOPE:}
     timeout-ms: ${GOOGLE_OAUTH_TIMEOUT_MS:10000}

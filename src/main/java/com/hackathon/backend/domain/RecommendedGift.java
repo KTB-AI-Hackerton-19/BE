@@ -56,6 +56,20 @@ public class RecommendedGift {
     @Column(length = 500)
     private String reason;
 
+    /** 실제 상품 구매 링크. AI가 상품을 못 찾으면(자주 그렇다) null이다. */
+    @Column(length = 1000)
+    private String productUrl;
+
+    /**
+     * AI가 써준 답례 인사 문구.
+     *
+     * <p>AI는 추천 한 세트에 문구 하나를 주므로 같은 세트의 카드가 모두 같은 값을 갖는다.
+     * 별도 테이블로 빼지 않은 이유는, 추천이 통째로 생성·삭제되어 수명이 정확히 같기 때문이다
+     * (따로 두면 지울 때 짝을 맞춰야 하고 고아 행이 생길 여지만 늘어난다).</p>
+     */
+    @Column(length = 1000)
+    private String thankYouMessage;
+
     @Column(nullable = false)
     private Integer displayOrder;
 
@@ -63,7 +77,8 @@ public class RecommendedGift {
     private LocalDateTime createdAt;
 
     public RecommendedGift(User user, Person person, String emoji, String name, Integer amount,
-                           RecommendationTag tag, String reason, Integer displayOrder) {
+                           RecommendationTag tag, String reason, String productUrl, String thankYouMessage,
+                           Integer displayOrder) {
         this.user = user;
         this.person = person;
         this.emoji = emoji;
@@ -71,6 +86,8 @@ public class RecommendedGift {
         this.amount = amount;
         this.tag = tag;
         this.reason = reason;
+        this.productUrl = productUrl;
+        this.thankYouMessage = thankYouMessage;
         this.displayOrder = displayOrder;
         this.createdAt = LocalDateTime.now();
     }

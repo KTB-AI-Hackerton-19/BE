@@ -35,3 +35,7 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### 로컬 시크릿 (커밋 금지) ###
+/config/secrets.yml
+/config/ENV.md

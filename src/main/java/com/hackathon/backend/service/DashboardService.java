@@ -7,7 +7,7 @@ import com.hackathon.backend.dto.dashboard.AgentInsightResponse;
 import com.hackathon.backend.dto.dashboard.DashboardResponse;
 import com.hackathon.backend.dto.dashboard.DashboardStatsResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
-import com.hackathon.backend.dto.recommendation.RecommendationResponse;
+import com.hackathon.backend.dto.recommendation.PersonRecommendationResponse;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.repository.GiftRecordRepository;
 import com.hackathon.backend.repository.PersonRepository;
@@ -28,6 +28,14 @@ public class DashboardService {
 
     private static final int DEFAULT_RECENT_LIMIT = 4;
     private static final int DEFAULT_RECOMMENDATION_LIMIT = 3;
+
+    /**
+     * 홈에서 내려줄 추천 그룹(사람) 수 상한.
+     *
+     * <p>그룹마다 AI를 한 번씩 부르므로 상한이 없으면 같은 날짜에 5명이 몰렸을 때 홈 진입이 20초를 넘는다.
+     * 전체가 필요하면 화면에서 {@code GET /api/recommendations}를 따로 부르면 된다.</p>
+     */
+    private static final int MAX_DASHBOARD_RECOMMENDATION_GROUPS = 2;
     private static final String[] MONTH_LABELS =
             {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
 
@@ -61,8 +69,11 @@ public class DashboardService {
 
         int recommendCount = (recommendationLimit == null || recommendationLimit <= 0)
                 ? DEFAULT_RECOMMENDATION_LIMIT : Math.min(recommendationLimit, 10);
-        List<RecommendationResponse> recommendations = recommendationService.listForPerson(
-                insight != null ? insight.personId() : null, recommendCount, false);
+        // 추천 대상 선정은 RecommendationService 한 곳에서만 판단한다.
+        // 대시보드가 따로 고르면 홈과 추천 목록이 서로 다른 사람을 추천하게 된다.
+        // 다만 그룹마다 AI를 부르므로 홈에서는 수를 제한해 첫 진입이 느려지지 않게 한다.
+        List<PersonRecommendationResponse> recommendations =
+                recommendationService.list(recommendCount, false, MAX_DASHBOARD_RECOMMENDATION_GROUPS);
 
         return new DashboardResponse(today, stats, insight, recentRecords.content(), recommendations);
     }
