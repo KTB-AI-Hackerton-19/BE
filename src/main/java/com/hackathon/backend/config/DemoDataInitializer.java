@@ -66,7 +66,8 @@ public class DemoDataInitializer {
             new DemoUser("yeeun", "정예은"),
             new DemoUser("doyun", "한도윤"),
             new DemoUser("sujin", "오수진"),
-            new DemoUser("taeho", "강태호")
+            new DemoUser("taeho", "강태호"),
+            new DemoUser("ktb19", "정수민")
     );
 
     private static final String DEMO_PASSWORD_SUFFIX = "1234";
@@ -140,6 +141,80 @@ public class DemoDataInitializer {
             RecordSeed.event("정하늘", 15, "부친상 조의금", "조의금", EventCategory.FUNERAL, 100000, 9, false),
             RecordSeed.event("한소희", 15, "부친상 조의금", "조의금", EventCategory.FUNERAL, 50000, null, true),
             RecordSeed.event("이서준", 15, "부친상 조의금", "조의금", EventCategory.FUNERAL, 50000, 9, false)
+    );
+
+    /**
+     * {@value #SAMPLE_ACCOUNT} 계정 전용 시드. 다른 데모 계정과 <b>완전히 분리된</b> 사람 20명 / 기록 30건이다.
+     *
+     * <p>목적이 하나 더 있다. 추천 요청의 {@code gift_price}는 그 사람에게서 <b>가장 최근에 받은 기록의 금액</b>
+     * 하나로 정해지는데({@code RecommendationService#buildRequest}), 답례일이 코앞인 사람들의 최신 기록을
+     * 전부 <b>5만원대</b>로 맞춰놨다. 그래야 AI가 5만원대 상품 URL을 물어오고, 시연에서 카드 링크가 쓸 만하게 나온다.
+     * 이 다섯 명(김서준·이하은·박도윤·최지우·정민우)에게는 <b>기록을 하나씩만</b> 준다 —
+     * 더 오래된 기록을 붙이면 "최신 기록"이 그쪽으로 밀려 금액대가 흔들리기 때문이다.</p>
+     */
+    private static final String SAMPLE_ACCOUNT = "sample";
+
+    private static final List<PersonSeed> SAMPLE_PEOPLE = List.of(
+            // 앞 5명 = 답례 임박 + 5만원대. 메모는 추천 요청의 interests/dislikes로 넘어간다.
+            new PersonSeed("김서준", Relationship.WORK.getLabel(), Gender.MALE, 18, "커피 좋아함. 원두 취향 확실함"),
+            new PersonSeed("이하은", Relationship.FRIEND.getLabel(), Gender.FEMALE, 34, "향수랑 캔들 좋아함"),
+            new PersonSeed("박도윤", Relationship.SCHOOL.getLabel(), Gender.MALE, 12, "견과류 알레르기 있음"),
+            new PersonSeed("최지우", Relationship.FRIEND.getLabel(), Gender.FEMALE, 51, "식물 키우는 거 좋아함"),
+            new PersonSeed("정민우", Relationship.WORK.getLabel(), Gender.MALE, 88, "등산·캠핑 자주 감"),
+
+            new PersonSeed("강예린", Relationship.RELATIVE.getLabel(), Gender.FEMALE, 27, "홈카페 용품 모음"),
+            new PersonSeed("조현우", Relationship.FRIEND.getLabel(), Gender.MALE, 63, null),
+            new PersonSeed("윤채원", Relationship.WORK.getLabel(), Gender.FEMALE, 41, "디저트 좋아함"),
+            new PersonSeed("장시우", Relationship.NEIGHBOR.getLabel(), Gender.MALE, null, "아이 둘 키움"),
+            new PersonSeed("임수아", Relationship.SCHOOL.getLabel(), Gender.FEMALE, 105, null),
+            new PersonSeed("한지훈", Relationship.FRIEND.getLabel(), Gender.MALE, 76, "문구류 좋아함"),
+            new PersonSeed("오유진", Relationship.WORK.getLabel(), Gender.FEMALE, 150, "최근 출산"),
+            new PersonSeed("서준영", Relationship.BUSINESS.getLabel(), Gender.MALE, null, "술은 안 마심"),
+            new PersonSeed("신다은", Relationship.FRIEND.getLabel(), Gender.FEMALE, 8, "꽃 좋아함"),
+            new PersonSeed("권태민", Relationship.SCHOOL.getLabel(), Gender.MALE, 200, null),
+            new PersonSeed("황수빈", Relationship.FAMILY.getLabel(), Gender.FEMALE, 46, null),
+            new PersonSeed("배정원", Relationship.WORK.getLabel(), Gender.FEMALE, 121, "향 강한 건 별로"),
+            new PersonSeed("문준석", Relationship.NEIGHBOR.getLabel(), Gender.MALE, 95, null),
+            new PersonSeed("송가은", Relationship.FRIEND.getLabel(), Gender.FEMALE, 30, "화장품 관심 많음"),
+            new PersonSeed("노승현", Relationship.BUSINESS.getLabel(), Gender.MALE, 170, null)
+    );
+
+    private static final List<RecordSeed> SAMPLE_RECORDS = List.of(
+            // ── 답례일 임박(오늘 +1~5일) + 5만원대. 각자 기록 1건씩만 둔다. ──
+            RecordSeed.gift("최지우", 4, "내 생일", "튤립 한 다발", "꽃·식물", 50000, 1, false),
+            RecordSeed.gift("김서준", 3, "승진 축하", "스타벅스 상품권", "상품권", 55000, 2, false),
+            RecordSeed.gift("이하은", 5, "내 생일", "딥티크 캔들", "생활용품", 52000, 3, false),
+            RecordSeed.gift("박도윤", 6, "집들이 답례", "무선 충전 스탠드", "생활용품", 58000, 4, false),
+            RecordSeed.gift("정민우", 8, "이직 축하", "가죽 카드지갑", "패션·잡화", 54000, 5, false),
+
+            // ── 나머지 선물 기록 ──
+            RecordSeed.gift("강예린", 12, "집들이 선물", "향초 세트", "생활용품", 32000, 14, false),
+            RecordSeed.gift("조현우", 16, "생일", "커피 원두 세트", "기타", 28000, 20, false),
+            RecordSeed.gift("윤채원", 21, "승진 축하", "보온 텀블러", "생활용품", 39000, 25, false),
+            RecordSeed.gift("장시우", 26, "이사 인사", "떡 세트", "기타", 25000, null, true),
+            RecordSeed.gift("임수아", 34, "생일", "마카롱 한 박스", "디저트", 22000, null, true),
+            RecordSeed.gift("한지훈", 40, "합격 축하", "만년필", "패션·잡화", 65000, null, true),
+            RecordSeed.gift("오유진", 45, "출산 답례", "핸드크림 세트", "생활용품", 30000, null, true),
+            RecordSeed.gift("서준영", 52, "명절 인사", "한우 선물세트", "기타", 150000, null, true),
+            RecordSeed.gift("신다은", 58, "생일", "장미 한 다발", "꽃·식물", 40000, null, true),
+            RecordSeed.gift("권태민", 63, "집들이", "와인 세트", "기타", 48000, null, true),
+            RecordSeed.gift("황수빈", 70, "생일", "백화점 상품권", "상품권", 100000, null, true),
+            RecordSeed.gift("배정원", 78, "감사 선물", "디퓨저 세트", "생활용품", 45000, null, true),
+            RecordSeed.gift("문준석", 85, "이웃 인사", "과일 바구니", "기타", 35000, null, true),
+            RecordSeed.gift("송가은", 92, "생일", "립밤 세트", "패션·잡화", 26000, null, true),
+            RecordSeed.gift("노승현", 100, "계약 감사", "홍삼 세트", "기타", 120000, null, true),
+            RecordSeed.gift("강예린", 115, "새해 인사", "다이어리 세트", "기타", 20000, null, true),
+            RecordSeed.gift("조현우", 130, "개업 축하", "몬스테라 화분", "꽃·식물", 43000, null, true),
+            RecordSeed.gift("윤채원", 145, "생일", "생일 케이크", "디저트", 33000, null, true),
+            RecordSeed.gift("한지훈", 160, "졸업 축하", "가죽 지갑", "패션·잡화", 78000, null, true),
+            RecordSeed.gift("임수아", 180, "생일", "커피 기프티콘", "상품권", 15000, null, true),
+
+            // ── 경조사. 행사일은 EVENT_DAYS_AGO 기준(결혼식 31일 전 / 장례식 15일 전)이라 유형별로 하루에 모인다. ──
+            RecordSeed.event("서준영", 31, "결혼 축의금", "축의금", EventCategory.WEDDING, 200000, 7, false),
+            RecordSeed.event("신다은", 31, "결혼 축의금", "축의금", EventCategory.WEDDING, 100000, 7, false),
+            RecordSeed.event("권태민", 31, "결혼 축의금", "축의금", EventCategory.WEDDING, 50000, null, true),
+            RecordSeed.event("오유진", 15, "부친상 조의금", "조의금", EventCategory.FUNERAL, 100000, 9, false),
+            RecordSeed.event("문준석", 15, "부친상 조의금", "조의금", EventCategory.FUNERAL, 50000, null, true)
     );
 
     @Bean
@@ -268,8 +343,13 @@ public class DemoDataInitializer {
         categoryRepository.findByUser_UsernameOrderByDisplayOrderAscIdAsc(username)
                 .forEach(c -> categories.put(c.getName(), c));
 
+        // sample 계정만 별도 시드를 쓴다(사람 20 / 기록 30, 답례 임박 건은 5만원대).
+        boolean sample = SAMPLE_ACCOUNT.equals(username);
+        List<PersonSeed> peopleSeeds = sample ? SAMPLE_PEOPLE : PEOPLE;
+        List<RecordSeed> recordSeeds = sample ? SAMPLE_RECORDS : RECORDS;
+
         Map<String, Person> people = new LinkedHashMap<>();
-        for (PersonSeed seed : PEOPLE) {
+        for (PersonSeed seed : peopleSeeds) {
             LocalDate birthday = seed.birthdayInDays() == null ? null : today.plusDays(seed.birthdayInDays());
             people.put(seed.name(),
                     personRepository.save(new Person(user, seed.name(), seed.relation(), seed.gender(),
@@ -277,7 +357,7 @@ public class DemoDataInitializer {
         }
 
         List<ReminderTask> reminders = new ArrayList<>();
-        for (RecordSeed seed : RECORDS) {
+        for (RecordSeed seed : recordSeeds) {
             Person person = people.get(seed.personName());
             LocalDate reminderDate = seed.reminderInDays() == null ? null : today.plusDays(seed.reminderInDays());
 
@@ -310,7 +390,8 @@ public class DemoDataInitializer {
                 : 0;
 
         log.info("데모 계정 '{}' (비밀번호 '{}{}', 이름 '{}') — 사람 {} / 기록 {} / 알림 {}{}",
-                username, username, DEMO_PASSWORD_SUFFIX, name, PEOPLE.size(), RECORDS.size(), reminders.size(),
+                username, username, DEMO_PASSWORD_SUFFIX, name, peopleSeeds.size(), recordSeeds.size(),
+                reminders.size(),
                 bulk > 0 ? " (+ 대량 " + bulk + "건)" : "");
     }
 }
