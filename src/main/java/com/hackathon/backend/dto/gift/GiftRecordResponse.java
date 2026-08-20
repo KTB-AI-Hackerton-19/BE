@@ -51,7 +51,7 @@ public record GiftRecordResponse(
         @Schema(description = "AI가 추정한 보낸 사람 성별 (새 사람 등록 폼 프리필용, 없으면 null)", example = "남성") Gender extractedGender,
         @Schema(description = "원본 이미지 조회용 presigned GET URL (매 응답마다 새로 발급, 15분 만료)") String imageUrl,
 
-        @Schema(description = "대분류. GIFT(선물) / EVENT(경조사)") RecordType recordType,
+        @Schema(description = "대분류 영문 코드. GIFT(선물) / EVENT(경조사)", example = "GIFT") RecordType recordType,
         @Schema(description = "대분류 한글 라벨. 화면에 그대로 출력하면 된다", example = "선물") String recordTypeLabel,
         @Schema(description = "경조사 여부(recordType=EVENT). 큰 틀 필터에 쓰면 된다", example = "false") boolean event,
 

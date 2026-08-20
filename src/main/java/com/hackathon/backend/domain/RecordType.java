@@ -1,7 +1,6 @@
 package com.hackathon.backend.domain;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonValue;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.Arrays;
 
@@ -11,7 +10,8 @@ import java.util.Arrays;
  * <p>GIFT는 {@link Category}(사용자별 자유 카테고리)를, EVENT는 {@link EventCategory}(고정 7종)를 쓴다.
  * 한 기록이 둘을 동시에 갖지 않도록 {@link GiftRecord}가 저장 시점에 강제한다.</p>
  */
-@Schema(description = "마음 기록 대분류", allowableValues = {"선물", "경조사"})
+@Schema(description = "마음 기록 대분류 (영문 코드). 한글 라벨은 응답의 recordTypeLabel에 따로 내려간다",
+        allowableValues = {"GIFT", "EVENT"}, example = "GIFT")
 public enum RecordType {
 
     GIFT("선물"),
@@ -23,7 +23,7 @@ public enum RecordType {
         this.label = label;
     }
 
-    @JsonValue
+    /** 한글 라벨. JSON에는 GIFT/EVENT(enum 이름)가 나가고, 이 라벨은 recordTypeLabel 같은 별도 필드로만 내려간다. */
     public String getLabel() {
         return label;
     }
