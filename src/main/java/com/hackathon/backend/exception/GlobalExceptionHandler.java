@@ -7,6 +7,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import com.hackathon.backend.dto.ErrorDetail;
+import java.util.List;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -39,17 +41,30 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleCustomException(CustomException e) {
         ErrorCode errorCode = e.getErrorCode();
         return ResponseEntity.status(errorCode.getStatus())
-                .body(ApiResponse.error(errorCode, e.getMessage()));
+                .body(ApiResponse.error(errorCode, e.getMessage(), e.getFields()));
     }
 
-    /** @Valid 실패 — 첫 번째 필드 메시지를 그대로 보여준다(사용자가 읽을 문장으로 써두었다). */
+    /**
+     * {@code @Valid} 실패.
+     *
+     * <p>토스트용 {@code message}에는 첫 번째 문구를 그대로 쓰고(사용자가 읽을 문장으로 써두었다),
+     * {@code fields}에는 <b>문제가 된 입력칸 전부</b>를 담는다. 필드명이 요청 DTO 속성명이라
+     * 화면 폼의 상태 이름과 그대로 맞아떨어진다(name/gender/relation 등).</p>
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleValidationException(MethodArgumentNotValidException e) {
-        String message = e.getBindingResult().getFieldErrors().stream()
-                .findFirst()
-                .map(FieldError::getDefaultMessage)
-                .orElse(ErrorCode.INVALID_INPUT.getDefaultMessage());
-        return badRequest(message);
+        List<ErrorDetail.FieldError> fields = e.getBindingResult().getFieldErrors().stream()
+                .map(error -> new ErrorDetail.FieldError(
+                        error.getField(),
+                        error.getDefaultMessage() == null
+                                ? ErrorCode.INVALID_INPUT.getDefaultMessage()
+                                : error.getDefaultMessage()))
+                .toList();
+        String message = fields.isEmpty()
+                ? ErrorCode.INVALID_INPUT.getDefaultMessage()
+                : fields.get(0).message();
+        return ResponseEntity.status(ErrorCode.INVALID_INPUT.getStatus())
+                .body(ApiResponse.error(ErrorCode.INVALID_INPUT, message, fields));
     }
 
     /**

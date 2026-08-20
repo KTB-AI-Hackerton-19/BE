@@ -38,16 +38,15 @@ public final class MoneyFormatter {
         boolean negative = raw.trim().startsWith("-");
         String digits = raw.replaceAll("[^0-9]", "");
         if (digits.isEmpty()) {
-            throw new CustomException(ErrorCode.INVALID_INPUT,
-                    "금액을 숫자로 입력해주세요. (예: 35000 또는 35,000원)");
+            throw CustomException.field("price", "금액을 숫자로 입력해주세요. (예: 35000 또는 35,000원)");
         }
         if (negative) {
-            throw new CustomException(ErrorCode.INVALID_INPUT, "금액은 0원 이상이어야 합니다.");
+            throw CustomException.field("price", "금액은 0원 이상이어야 합니다.");
         }
         try {
             return Integer.valueOf(digits);
         } catch (NumberFormatException e) {
-            throw new CustomException(ErrorCode.INVALID_INPUT, "금액이 너무 큽니다.");
+            throw CustomException.field("price", "금액이 너무 큽니다.");
         }
     }
 }

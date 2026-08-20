@@ -13,6 +13,7 @@ import com.hackathon.backend.domain.Person;
 import com.hackathon.backend.domain.RecordType;
 import com.hackathon.backend.domain.ReminderTask;
 import com.hackathon.backend.domain.User;
+import com.hackathon.backend.dto.ErrorDetail;
 import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.gift.EventCategoryResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
@@ -34,7 +35,9 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -223,7 +226,7 @@ public class GiftRecordService {
         if (effectiveType == RecordType.EVENT
                 && request.eventCategory() != null && !request.eventCategory().isBlank() && eventCategory == null) {
             // 유형을 보내긴 했는데 목록에 없는 값이다(오타). 미입력은 확정할 때 다른 항목과 함께 안내한다.
-            throw new CustomException(ErrorCode.INVALID_INPUT, "경조사 유형을 정확히 선택해주세요.");
+            throw CustomException.field("eventCategory", "경조사 유형을 정확히 선택해주세요.");
         }
 
         record.applyUpdate(sender.person(), sender.guestName(),
@@ -256,25 +259,36 @@ public class GiftRecordService {
      * AI가 만든 DRAFT는 값이 비어 있는 게 정상이라 여기를 통과하지 않는다 — 확정하는 순간에만 본다.</p>
      */
     private void validateRequired(GiftRecord record) {
-        List<String> missing = new ArrayList<>();
+        List<ErrorDetail.FieldError> missing = new ArrayList<>();
         if (isBlank(record.displayName())) {
-            missing.add("보낸 사람");
+            missing.add(new ErrorDetail.FieldError("personName", "보낸 사람을 입력해주세요."));
         }
         if (record.getRecordType() == RecordType.EVENT) {
             if (record.getEventCategory() == null) {
-                missing.add("경조사 유형");
+                missing.add(new ErrorDetail.FieldError("eventCategory", "경조사 유형을 선택해주세요."));
             }
         } else if (isBlank(record.getGiftName())) {
-            missing.add("선물명");
+            missing.add(new ErrorDetail.FieldError("gift", "선물을 입력해주세요."));
         }
         if (record.getAmount() == null) {
-            missing.add("금액");
+            missing.add(new ErrorDetail.FieldError("price", "금액을 입력해주세요."));
         }
-        if (!missing.isEmpty()) {
-            throw new CustomException(ErrorCode.INVALID_INPUT,
-                    "다음 항목을 입력해주세요: " + String.join(", ", missing));
+        if (missing.isEmpty()) {
+            return;
         }
+        // 토스트용 한 문장 + 인풋별 문구를 함께 보낸다. 프론트는 fields만 보고 각 칸에 표시하면 된다.
+        String summary = "다음 항목을 입력해주세요: " + missing.stream()
+                .map(field -> LABELS.getOrDefault(field.field(), field.field()))
+                .collect(Collectors.joining(", "));
+        throw new CustomException(ErrorCode.INVALID_INPUT, summary, missing);
     }
+
+    /** 토스트 한 문장에 쓰는 사람이 읽는 이름. 인풋에 붙는 문구는 FieldError.message가 따로 갖는다. */
+    private static final Map<String, String> LABELS = Map.of(
+            "personName", "보낸 사람",
+            "eventCategory", "경조사 유형",
+            "gift", "선물명",
+            "price", "금액");
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
@@ -562,7 +576,7 @@ public class GiftRecordService {
         }
         EventCategory eventCategory = EventCategory.from(raw);
         if (eventCategory == null) {
-            throw new CustomException(ErrorCode.INVALID_INPUT, "경조사 유형을 정확히 선택해주세요.");
+            throw CustomException.field("eventCategory", "경조사 유형을 정확히 선택해주세요.");
         }
         return eventCategory;
     }
@@ -576,13 +590,13 @@ public class GiftRecordService {
     private void validateDates(LocalDate receivedDate, LocalDate reminderDate) {
         LocalDate today = LocalDate.now();
         if (receivedDate != null && receivedDate.isAfter(today.plusDays(MAX_FUTURE_DAYS))) {
-            throw new CustomException(ErrorCode.INVALID_INPUT, "받은 날짜는 미래일 수 없습니다.");
+            throw CustomException.field("date", "받은 날짜는 미래일 수 없습니다.");
         }
         if (reminderDate != null && reminderDate.isBefore(today)) {
-            throw new CustomException(ErrorCode.INVALID_INPUT, "답례 알림일은 오늘 이후로 정해주세요.");
+            throw CustomException.field("reminderDate", "답례 알림일은 오늘 이후로 정해주세요.");
         }
         if (receivedDate != null && reminderDate != null && reminderDate.isBefore(receivedDate)) {
-            throw new CustomException(ErrorCode.INVALID_INPUT, "답례 알림일은 받은 날짜보다 앞설 수 없습니다.");
+            throw CustomException.field("reminderDate", "답례 알림일은 받은 날짜보다 앞설 수 없습니다.");
         }
     }
 

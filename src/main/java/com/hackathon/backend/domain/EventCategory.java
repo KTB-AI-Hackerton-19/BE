@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.Arrays;
+import java.util.Map;
 
 /**
  * 경조사 유형. 선물 카테고리({@link Category})와 달리 <b>고정 7종</b>이다 — 결혼식이 갑자기 새 항목으로
@@ -13,16 +14,25 @@ import java.util.Arrays;
  * 경조사는 더 이상 row가 없어 어디서도 파생할 곳이 없기 때문이다.</p>
  */
 @Schema(description = "경조사 유형", allowableValues = {
-        "결혼", "출산/돌잔치", "수연", "취업/승진", "개업/이사", "장례식", "제사/탈상"})
+        "결혼", "출산/돌잔치", "수연(환갑, 칠순, 팔순)", "취업/승진", "개업/이사", "장례식", "제사/탈상"})
 public enum EventCategory {
 
     WEDDING("결혼", EventGroup.CELEBRATION, "💍", "gold"),
     CHILDBIRTH("출산/돌잔치", EventGroup.CELEBRATION, "👶", "pink"),
-    LONGEVITY_BIRTHDAY("수연", EventGroup.CELEBRATION, "🎂", "gold"),
+    // 라벨에 괄호로 예시를 붙인 건 "수연"만으로는 뜻이 안 통해서다. from()이 라벨로도 매칭하므로
+    // 예전 라벨 "수연"을 그대로 보내는 요청도 계속 받아준다(아래 LEGACY_LABELS 참고).
+    LONGEVITY_BIRTHDAY("수연(환갑, 칠순, 팔순)", EventGroup.CELEBRATION, "🎂", "gold"),
     EMPLOYMENT_PROMOTION("취업/승진", EventGroup.CELEBRATION, "💼", "mint"),
     OPENING_MOVING("개업/이사", EventGroup.CELEBRATION, "🏠", "mint"),
     FUNERAL("장례식", EventGroup.CONDOLENCE, "🕊️", "blue"),
     MEMORIAL_SERVICE("제사/탈상", EventGroup.CONDOLENCE, "🕯️", "blue");
+
+    /**
+     * 라벨이 바뀌기 전에 쓰던 표기. 라벨을 "수연"에서 "수연(환갑, 칠순, 팔순)"으로 바꿨는데,
+     * {@link #from(String)}이 라벨 문자열로도 매칭하기 때문에 이걸 두지 않으면
+     * 예전 라벨을 그대로 보내는 요청이 전부 "유형을 정확히 선택해주세요"로 튕긴다.
+     */
+    private static final Map<String, EventCategory> LEGACY_LABELS = Map.of("수연", LONGEVITY_BIRTHDAY);
 
     private final String label;
     private final EventGroup group;
@@ -67,6 +77,6 @@ public enum EventCategory {
         return Arrays.stream(values())
                 .filter(c -> c.label.equals(trimmed) || c.name().equalsIgnoreCase(trimmed))
                 .findFirst()
-                .orElse(null);
+                .orElseGet(() -> LEGACY_LABELS.get(trimmed));
     }
 }
