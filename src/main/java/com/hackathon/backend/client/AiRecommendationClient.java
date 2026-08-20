@@ -47,7 +47,7 @@ public class AiRecommendationClient {
 
         try {
             AiRecommendResponse response = restClient.post()
-                    .uri(aiServiceUrl + "/recommendations")
+                    .uri(aiServiceUrl + "/recommend")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
