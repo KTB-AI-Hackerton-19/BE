@@ -53,7 +53,11 @@ public class DemoDataInitializer {
      * 계정마다 사람·기록·알림·카테고리를 각자 갖기 때문에 여러 명이 동시에 시연해도 서로 간섭하지 않는다.
      * 프론트 자동 로그인은 demo를 쓰므로 그 계정은 지우지 말 것.
      */
-    private record DemoUser(String username, String name) {
+    private record DemoUser(String username, String name, String password) {
+        /** 비밀번호를 따로 안 적으면 "아이디 + 1234" 규칙을 그대로 쓴다. */
+        private DemoUser(String username, String name) {
+            this(username, name, username + DEMO_PASSWORD_SUFFIX);
+        }
     }
 
     private static final List<DemoUser> DEMO_USERS = List.of(
@@ -67,7 +71,9 @@ public class DemoDataInitializer {
             new DemoUser("doyun", "한도윤"),
             new DemoUser("sujin", "오수진"),
             new DemoUser("taeho", "강태호"),
-            new DemoUser("ktb19", "정수민")
+            // 답례 임박 + 5만원대 기록을 심어둔 계정. 아래 SAMPLE_* 시드를 쓴다.
+            // 비밀번호만 "아이디 + 1234" 규칙에서 예외로 뒀다.
+            new DemoUser("user1", "사용자1", "test1234")
     );
 
     private static final String DEMO_PASSWORD_SUFFIX = "1234";
@@ -152,7 +158,7 @@ public class DemoDataInitializer {
      * 이 다섯 명(김서준·이하은·박도윤·최지우·정민우)에게는 <b>기록을 하나씩만</b> 준다 —
      * 더 오래된 기록을 붙이면 "최신 기록"이 그쪽으로 밀려 금액대가 흔들리기 때문이다.</p>
      */
-    private static final String SAMPLE_ACCOUNT = "sample";
+    private static final String SAMPLE_ACCOUNT = "user1";
 
     private static final List<PersonSeed> SAMPLE_PEOPLE = List.of(
             // 앞 5명 = 답례 임박 + 5만원대. 메모는 추천 요청의 interests/dislikes로 넘어간다.
@@ -229,8 +235,9 @@ public class DemoDataInitializer {
             if (userRepository.existsByUsername(demo.username())) {
                 return; // 이미 있으면 손대지 않는다(실DB 전환 시 자동 비활성화).
             }
-            seedFor(demo.username(), demo.name(), userRepository, personRepository, giftRecordRepository,
-                    reminderTaskRepository, categoryRepository, categoryService, passwordEncoder);
+            seedFor(demo.username(), demo.name(), demo.password(), userRepository, personRepository,
+                    giftRecordRepository, reminderTaskRepository, categoryRepository, categoryService,
+                    passwordEncoder);
         });
     }
 
@@ -328,14 +335,14 @@ public class DemoDataInitializer {
         return records.size();
     }
 
-    private void seedFor(String username, String name, UserRepository userRepository, PersonRepository personRepository,
-                         GiftRecordRepository giftRecordRepository, ReminderTaskRepository reminderTaskRepository,
-                         CategoryRepository categoryRepository, CategoryService categoryService,
-                         PasswordEncoder passwordEncoder) {
+    private void seedFor(String username, String name, String password, UserRepository userRepository,
+                         PersonRepository personRepository, GiftRecordRepository giftRecordRepository,
+                         ReminderTaskRepository reminderTaskRepository, CategoryRepository categoryRepository,
+                         CategoryService categoryService, PasswordEncoder passwordEncoder) {
         LocalDate today = LocalDate.now();
 
         User user = userRepository.save(
-                new User(username, passwordEncoder.encode(username + DEMO_PASSWORD_SUFFIX), name));
+                new User(username, passwordEncoder.encode(password), name));
 
         // 카테고리는 사용자별이므로 이 계정 것으로 먼저 깔아둔다(선물 6종). 경조사는 고정 7종 enum이라 여기 관여하지 않는다.
         categoryService.provisionDefaults(user);
@@ -343,7 +350,7 @@ public class DemoDataInitializer {
         categoryRepository.findByUser_UsernameOrderByDisplayOrderAscIdAsc(username)
                 .forEach(c -> categories.put(c.getName(), c));
 
-        // sample 계정만 별도 시드를 쓴다(사람 20 / 기록 30, 답례 임박 건은 5만원대).
+        // 이 계정만 별도 시드를 쓴다(사람 20 / 기록 30, 답례 임박 건은 5만원대).
         boolean sample = SAMPLE_ACCOUNT.equals(username);
         List<PersonSeed> peopleSeeds = sample ? SAMPLE_PEOPLE : PEOPLE;
         List<RecordSeed> recordSeeds = sample ? SAMPLE_RECORDS : RECORDS;
@@ -389,8 +396,8 @@ public class DemoDataInitializer {
                 ? seedBulk(user, categories, personRepository, giftRecordRepository, reminderTaskRepository, today)
                 : 0;
 
-        log.info("데모 계정 '{}' (비밀번호 '{}{}', 이름 '{}') — 사람 {} / 기록 {} / 알림 {}{}",
-                username, username, DEMO_PASSWORD_SUFFIX, name, peopleSeeds.size(), recordSeeds.size(),
+        log.info("데모 계정 '{}' (비밀번호 '{}', 이름 '{}') — 사람 {} / 기록 {} / 알림 {}{}",
+                username, password, name, peopleSeeds.size(), recordSeeds.size(),
                 reminders.size(),
                 bulk > 0 ? " (+ 대량 " + bulk + "건)" : "");
     }
