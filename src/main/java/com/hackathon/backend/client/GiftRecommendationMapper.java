@@ -39,19 +39,30 @@ final class GiftRecommendationMapper {
                         (AiRecommendResponse.Category c) -> c.score() == null ? 0 : c.score()).reversed())
                 .toList();
 
-        for (AiRecommendResponse.Category category : sorted) {
-            List<String> examples = category.productExamples() == null ? List.of() : category.productExamples();
-            // 예시가 하나도 없으면 카테고리 이름 자체를 후보로 쓴다.
-            List<String> names = examples.isEmpty() ? List.of(category.category()) : examples;
-            for (String name : names) {
+        // 카테고리를 <b>돌아가며</b> 한 개씩 집는다. 점수 높은 카테고리부터 예시를 다 쓰면
+        // 3장짜리 화면이 한 카테고리로 다 채워져(예시가 카테고리당 2개라 1등만으로 거의 끝난다)
+        // '다시 추천받기'로 카테고리가 바뀌어도 1등이 겹치는 순간 같은 카드가 그대로 나온다.
+        int depth = 0;
+        boolean added = true;
+        while (items.size() < limit && added) {
+            added = false;
+            for (AiRecommendResponse.Category category : sorted) {
+                List<String> examples = category.productExamples() == null ? List.of() : category.productExamples();
+                // 예시가 하나도 없으면 카테고리 이름 자체를 후보로 쓴다.
+                List<String> names = examples.isEmpty() ? List.of(category.category()) : examples;
+                if (depth >= names.size()) {
+                    continue;
+                }
                 if (items.size() >= limit) {
                     return items;
                 }
                 // 실제 상품이 아니라 예시 이름이므로 구매 링크는 없다.
                 items.add(new AiRecommendResponse.Item(
-                        null, name, midPrice(gift), tagOf(category.score()), category.reason(),
+                        null, names.get(depth), midPrice(gift), tagOf(category.score()), category.reason(),
                         null, category.category(), message));
+                added = true;
             }
+            depth++;
         }
         return items;
     }

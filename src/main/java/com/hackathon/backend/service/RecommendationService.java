@@ -1,9 +1,12 @@
 package com.hackathon.backend.service;
 
+import com.hackathon.backend.client.AiGiftCategories;
 import com.hackathon.backend.client.AiRecommendRequest;
 import com.hackathon.backend.client.AiRecommendResponse;
 import com.hackathon.backend.client.AiRecommendationClient;
 import com.hackathon.backend.client.ProductImageResolver;
+import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.domain.Gender;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
 import com.hackathon.backend.domain.Relationship;
@@ -17,6 +20,7 @@ import com.hackathon.backend.dto.recommendation.PersonRecommendationResponse;
 import com.hackathon.backend.dto.recommendation.RecommendationResponse;
 import com.hackathon.backend.exception.CustomException;
 import com.hackathon.backend.exception.ErrorCode;
+import com.hackathon.backend.repository.CategoryRepository;
 import com.hackathon.backend.repository.GiftRecordRepository;
 import com.hackathon.backend.repository.PersonRepository;
 import com.hackathon.backend.repository.RecommendedGiftRepository;
@@ -26,8 +30,6 @@ import com.hackathon.backend.security.SecurityUtils;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
-import java.time.LocalDate;
-import java.time.Period;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -76,8 +78,20 @@ public class RecommendationService {
     private static final double BUDGET_MIN_RATIO = 0.8;
     private static final double BUDGET_MAX_RATIO = 1.2;
     private static final int MAX_INTERESTS = 5;
+    /** 한 세트에 넘길 카테고리 수. AI 명세 상한이 3이고, 많을수록 카드 후보도 늘어난다. */
+    private static final int CATEGORIES_PER_ROUND = 3;
+
+    // 아래 셋은 AI 명세(RecommendRequest)의 검증 상한이다. 넘겨 보내면 422가 나고 조용히 더미로 떨어진다.
+    private static final int MAX_PRICE = 100_000_000;
+    private static final int MAX_SHORT_TEXT = 50;    // person_name / relationship / event
+    private static final int MAX_GIFT_NAME = 200;
+
+    /** 메모 한 조각을 '기피'로 볼 표현. 하나라도 들어 있으면 interests가 아니라 dislikes로 보낸다. */
+    private static final List<String> DISLIKE_MARKERS = List.of(
+            "싫", "알레르기", "알러지", "못 먹", "못먹", "안 먹", "안먹", "제외", "비선호", "질색", "기피", "금지");
 
     private final RecommendedGiftRepository recommendedGiftRepository;
+    private final CategoryRepository categoryRepository;
     private final PersonRepository personRepository;
     private final GiftRecordRepository giftRecordRepository;
     private final UserRepository userRepository;
@@ -89,7 +103,8 @@ public class RecommendationService {
 
     private final TransactionTemplate txTemplate;
 
-    public RecommendationService(RecommendedGiftRepository recommendedGiftRepository, PersonRepository personRepository,
+    public RecommendationService(RecommendedGiftRepository recommendedGiftRepository,
+                                 CategoryRepository categoryRepository, PersonRepository personRepository,
                                  GiftRecordRepository giftRecordRepository, UserRepository userRepository,
                                  ReminderTaskRepository reminderTaskRepository,
                                  CategoryEmojiResolver categoryEmojiResolver,
@@ -98,6 +113,7 @@ public class RecommendationService {
                                  RecommendationPrefetcher prefetcher,
                                  PlatformTransactionManager transactionManager) {
         this.recommendedGiftRepository = recommendedGiftRepository;
+        this.categoryRepository = categoryRepository;
         this.personRepository = personRepository;
         this.giftRecordRepository = giftRecordRepository;
         this.userRepository = userRepository;
@@ -221,7 +237,7 @@ public class RecommendationService {
 
     /** 예열 계획 하나. AI 호출을 트랜잭션 밖에서 하려고, 필요한 판단을 미리 다 끝내서 들고 나간다. */
     private record WarmPlan(String username, Long personId, RecommendationSlot slot, int size,
-                            List<Long> obsoleteIds, AiRecommendRequest request) {
+                            List<Long> obsoleteIds, AiRecommendRequest request, int round) {
     }
 
     /** AI가 만들어준 세트(아직 저장 전). */
@@ -259,9 +275,10 @@ public class RecommendationService {
             obsolete = waiting;
         }
 
+        LastSet last = lastSet(username, personId);
         return new WarmPlan(username, personId, slot, size,
                 obsolete.stream().map(RecommendedGift::getId).toList(),
-                buildRequest(username, person, event));
+                buildRequest(username, person, event, last), last.round());
     }
 
     /** 만들어둔 세트를 짧은 트랜잭션 안에서 갈아끼운다. */
@@ -280,7 +297,7 @@ public class RecommendationService {
             recommendedGiftRepository.deleteAllById(plan.obsoleteIds());
             recommendedGiftRepository.flush();
         }
-        persist(user, person, generated, plan.slot());
+        persist(user, person, generated, plan.slot(), plan.round());
     }
 
     /**
@@ -408,9 +425,11 @@ public class RecommendationService {
             }
         }
 
+        // 반드시 '지우기 전에' 읽는다. 지운 뒤에 읽으면 직전 세트가 뭐였는지 알 수 없어 같은 카테고리를 또 뽑는다.
+        LastSet last = lastSet(username, personId);
         recommendedGiftRepository.deleteAll(current);
         recommendedGiftRepository.flush();
-        return generate(user, username, person, event, size, RecommendationSlot.CURRENT);
+        return generate(user, username, person, event, size, RecommendationSlot.CURRENT, last);
     }
 
     /**
@@ -421,8 +440,39 @@ public class RecommendationService {
      * 조회 때 뽑으면 캐시된 추천을 볼 때마다 쇼핑몰을 다시 두드리게 된다.</p>
      */
     private List<RecommendedGift> generate(User user, String username, Person person, String event,
-                                           int size, RecommendationSlot slot) {
-        return persist(user, person, callAi(buildRequest(username, person, event), size), slot);
+                                           int size, RecommendationSlot slot, LastSet last) {
+        return persist(user, person, callAi(buildRequest(username, person, event, last), size), slot, last.round());
+    }
+
+    /**
+     * 이 대상에 대해 이번에 만들 세트가 몇 번째인지. 남아 있는 세트(CURRENT·NEXT) 중 가장 큰 값 + 1이다.
+     *
+     * <p>'다시 추천받기'가 매번 다른 카테고리를 집게 하는 유일한 근거다. AI는 같은 입력에 같은 답을 주고
+     * (실측: 상품 3건이 완전히 동일), 카테고리별 상품 예시도 AI 쪽에 <b>상수로 박혀 있어</b>
+     * 입력을 바꾸지 않으면 결과가 절대 안 바뀐다.</p>
+     */
+    private LastSet lastSet(String username, Long personId) {
+        List<RecommendedGift> rows = new java.util.ArrayList<>();
+        for (RecommendationSlot slot : RecommendationSlot.values()) {
+            rows.addAll(personId == null
+                    ? recommendedGiftRepository.findByUser_UsernameAndPersonIsNullAndSlotOrderByDisplayOrderAsc(username, slot)
+                    : recommendedGiftRepository.findByUser_UsernameAndPerson_IdAndSlotOrderByDisplayOrderAsc(
+                            username, personId, slot));
+        }
+        int max = rows.stream().mapToInt(RecommendedGift::getRound).max().orElse(-1);
+        // 저장된 이름을 그대로 쓰면 안 된다. AI는 우리가 "식품·디저트"로 보낸 것을 "디저트"로 돌려주기도 해서
+        // (실측), 이름이 다르면 제외가 통째로 안 먹고 같은 카테고리를 연달아 다시 뽑는다.
+        java.util.Set<String> categories = rows.stream()
+                .filter(row -> row.getRound() == max)
+                .map(RecommendedGift::getAiCategory)
+                .map(AiGiftCategories::normalize)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        return new LastSet(max + 1, categories);
+    }
+
+    /** 직전 세트. 몇 번째였는지와 어떤 카테고리로 뽑혔는지 — 다음 세트를 <b>다르게</b> 만드는 데 쓴다. */
+    private record LastSet(int round, java.util.Set<String> categories) {
     }
 
     /** AI 호출 + 상품 이미지 수집. DB를 건드리지 않으므로 트랜잭션 밖에서 불러도 된다(예열이 그렇게 쓴다). */
@@ -437,11 +487,11 @@ public class RecommendationService {
     }
 
     private List<RecommendedGift> persist(User user, Person person, GeneratedSet generated,
-                                          RecommendationSlot slot) {
+                                          RecommendationSlot slot, int round) {
         return recommendedGiftRepository.saveAll(
                 java.util.stream.IntStream.range(0, generated.items().size())
                         .mapToObj(i -> toEntity(user, person, generated.items().get(i), generated.images(), i,
-                                slot, generated.fallback(), generated.batchId()))
+                                slot, generated.fallback(), generated.batchId(), round))
                         .toList());
     }
 
@@ -485,18 +535,24 @@ public class RecommendationService {
      * AI 추천 요청 조립.
      *
      * <p>AI 명세({@code RecommendRequest})는 모든 필드가 선택이므로 <b>모르는 값은 보내지 않는다.</b>
-     * 나이는 생일이 있어야 계산되고, 성별은 미입력이면 생략(서버 기본값 unknown)한다.</p>
+     * 다만 "모른다"의 기준을 사람(Person)에만 두지 않는다. 사람에 생일·성별·관계가 비어 있어도
+     * 기록에는 AI가 사진에서 읽어낸 값({@code extractedAge} 등)이 남아 있는 경우가 많고,
+     * 그걸 안 쓰면 요청이 거의 빈 채로 나가 추천이 뻔해진다. 캘린더 연동({@code GoogleCalendarService})은
+     * 이미 같은 폴백을 쓰고 있어 동작도 그쪽과 맞춰진다.</p>
+     *
+     * <p><b>{@code age}는 보내지 않는다.</b> 우리가 가진 건 생일이지 나이가 아니다. 생일은 '다가오는 기념일'
+     * 계산용으로 받는 값이라 연도가 실제와 다를 수 있고(연도를 아무거나 넣은 사람도 있다), 비어 있는 경우도 많다.
+     * {@code extractedAge}는 AI가 사진으로 <b>추측한</b> 값이라 더 못 믿는다. 틀린 나이는 없는 나이보다 나쁘다 —
+     * AI가 그걸 근거로 엉뚱한 연령대의 선물을 고른다. 나이를 정확히 받는 입력이 생기면 그때 채운다.</p>
      *
      * <p>기준이 되는 선물은 <b>가장 최근에 받은 것</b> 하나다. AI가 여러 건을 받지 않기 때문이고,
      * 답례는 보통 마지막으로 받은 마음에 대해 하므로 최근 것이 맞다.</p>
      *
-     * <p><b>{@code categories}는 보내지 않는다.</b> 이 필드는 "지정하면 그 안에서만 추천"이라
-     * 받은 선물의 카테고리 하나를 넣으면 AI가 그 카테고리 하나짜리 응답만 주고, 거기 딸린
-     * 예시 개수가 그대로 카드 수 상한이 된다(실제로 향수 → '패션·잡화' 하나 → 카드 2장으로 잘렸다).
-     * 받은 게 향수라고 답례까지 향수 계열로 묶을 이유도 없고, "받은 것과 비슷한 부담"은
-     * {@code gift_name}·{@code gift_price}·예산으로 이미 전달된다.</p>
+     * <p>길이·범위는 여기서 맞춘다. AI는 Pydantic 검증이라 {@code event} 50자 초과나
+     * {@code gift_price: 0} 하나로 <b>422</b>를 내고, 그러면 조용히 더미 3장으로 떨어져
+     * "다시 추천받아도 똑같은 카드"가 된다. 우리 컬럼이 더 넉넉해서(occasion 200자) 실제로 걸릴 수 있다.</p>
      */
-    private AiRecommendRequest buildRequest(String username, Person person, String event) {
+    private AiRecommendRequest buildRequest(String username, Person person, String event, LastSet last) {
         List<GiftRecord> records = person == null
                 ? giftRecordRepository.findByUser_UsernameOrderByReceivedDateDescIdDesc(username)
                 : giftRecordRepository.findByUser_UsernameAndPerson_IdOrderByReceivedDateDescIdDesc(username, person.getId());
@@ -505,43 +561,90 @@ public class RecommendationService {
         Integer amount = latest != null ? latest.getAmount() : null;
 
         return new AiRecommendRequest(
-                ageOf(person),
-                genderOf(person),
+                // age — 보내지 않는다. 아래 주석 참고.
+                null,
+                genderOf(person, latest),
                 budgetOf(amount, BUDGET_MIN_RATIO),
                 budgetOf(amount, BUDGET_MAX_RATIO),
-                null,   // categories — 위 주석 참고. 후보를 좁히면 추천 카드가 모자란다.
-                latest != null ? latest.getGiftName() : null,
-                amount,
-                person != null ? person.getName() : null,
-                person != null ? Relationship.displayLabel(person.getRelationship()) : null,
+                categoriesOf(username, last),
+                cut(latest != null ? latest.getGiftName() : null, MAX_GIFT_NAME),
+                giftPriceOf(amount),
+                person != null ? cut(person.getName(), MAX_SHORT_TEXT) : null,
+                cut(relationshipOf(person, latest), MAX_SHORT_TEXT),
                 // 생일이면 그 사실을 AI에 알린다. 아니면 받은 기록의 이유를 그대로 쓴다.
-                event != null ? event : (latest != null ? latest.getOccasion() : null),
-                interestsOf(person));
+                cut(event != null ? event : eventOf(latest), MAX_SHORT_TEXT),
+                memoTokens(person, false),
+                memoTokens(person, true));
     }
 
-    /** 생일이 있어야 나이를 계산한다. 없으면 보내지 않는다(추측하지 않는다). */
-    private Integer ageOf(Person person) {
-        if (person == null || person.getBirthday() == null) {
-            return null;
-        }
-        // 생일이 아직 안 지난 연도(=미래 날짜)면 Period가 0년으로 나와 "0살"이 나간다. 모르면 안 보낸다.
-        if (person.getBirthday().isAfter(LocalDate.now())) {
-            return null;
-        }
-        int age = Period.between(person.getBirthday(), LocalDate.now()).getYears();
-        return age >= 0 && age <= 120 ? age : null;
+    /**
+     * 이번 세트에 넘길 후보 카테고리. <b>'다시 추천받기'가 매번 다른 카드를 주게 만드는 핵심</b>이다.
+     *
+     * <p>AI 서비스 코드를 열어보고 정한 방식이다. 알아낸 건 셋이다.
+     * ① 카테고리별 상품 예시({@code SAFE_EXAMPLES})가 AI 쪽에 <b>상수로 박혀 있다</b> — 같은 카테고리면 카드 이름이 늘 같다.
+     * ② 실제 상품 검색어가 {@code "{그 예시} 선물 {N}만원대"}로 조립된다 — 카테고리가 같으면 검색어도 같고 결과도 같다.
+     * ③ 우리가 보낸 카테고리는 프롬프트에 "이 안에서만 고르세요"로 들어간다(무시되지 않는다).
+     * 결국 <b>카테고리를 바꾸는 것 말고는 결과를 바꿀 방법이 없다</b>. 예산은 만원 단위로 뭉개져 검색어에 들어가서
+     * 웬만큼 바꿔선 같은 구간에 머물고, 나머지 필드는 문장만 바꿀 뿐 상품을 안 바꾼다(실측).</p>
+     *
+     * <p>그래서 <b>사용자의 카테고리 목록에서 매번 무작위로</b> 고르되, 직전 세트에 썼던 것은 뺀다.
+     * 무작위만 쓰면 연달아 같은 조합이 나올 수 있고, 그러면 버튼을 눌러도 아무 일도 안 일어난 것처럼 보인다.</p>
+     *
+     * <p>세 개를 보내는 이유는 카드 수다. AI는 카테고리당 예시를 2개 주므로 셋이면 후보가 6장이라
+     * 상품 검색이 전부 빈손이어도 3장을 채운다. 하나만 보내면 2장으로 잘린다(실측).</p>
+     */
+    private List<String> categoriesOf(String username, LastSet last) {
+        List<String> pool = categoryRepository.findByUser_UsernameAndActiveTrueOrderByDisplayOrderAscIdAsc(username)
+                .stream()
+                .map(Category::getName)
+                // "기타"는 폴백 버킷이라 후보를 좁히는 의미가 없다.
+                .filter(name -> name != null && !CategoryService.FALLBACK_CATEGORY_NAME.equals(name))
+                .toList();
+        return AiGiftCategories.pick(pool, last.categories(), CATEGORIES_PER_ROUND,
+                java.util.concurrent.ThreadLocalRandom.current());
     }
 
-    /** AI는 male/female/unknown만 받는다. 미입력이면 생략해 서버 기본값(unknown)을 쓰게 한다. */
-    private String genderOf(Person person) {
-        if (person == null || person.getGender() == null) {
+    /**
+     * AI는 male/female/unknown만 받는다. 미입력이면 생략해 서버 기본값(unknown)을 쓰게 한다.
+     *
+     * <p>사용자가 '기타'를 고른 건 <b>모른다가 아니라 고른 것</b>이라 AI 추정치로 덮지 않고 생략한다.
+     * 추정치는 사람에 성별 자체가 없을 때만 쓴다.</p>
+     */
+    private String genderOf(Person person, GiftRecord latest) {
+        if (person != null && person.getGender() != null) {
+            return aiGender(person.getGender());
+        }
+        return latest == null ? null : aiGender(latest.getExtractedGender());
+    }
+
+    private String aiGender(Gender gender) {
+        if (gender == null) {
             return null;
         }
-        return switch (person.getGender()) {
+        return switch (gender) {
             case MALE -> "male";
             case FEMALE -> "female";
             case OTHER -> null;
         };
+    }
+
+    /** 관계. 사람에 없으면 기록에 적힌 것(사람 미등록 이름의 관계 → AI 추정)까지 내려간다. */
+    private String relationshipOf(Person person, GiftRecord latest) {
+        String raw = person != null && person.getRelationship() != null
+                ? person.getRelationship()
+                : (latest == null ? null : latest.displayRelationship());
+        return Relationship.displayLabel(raw);
+    }
+
+    /** 받은 이유. 자유 텍스트가 비어 있으면 경조사 종류(결혼/장례식 등)라도 알려준다. */
+    private String eventOf(GiftRecord latest) {
+        if (latest == null) {
+            return null;
+        }
+        if (latest.getOccasion() != null && !latest.getOccasion().isBlank()) {
+            return latest.getOccasion().trim();
+        }
+        return latest.getEventCategory() != null ? latest.getEventCategory().getLabel() : null;
     }
 
     /** 받은 금액의 80~120%를 답례 예산으로 제안한다. 금액을 모르면 보내지 않는다. */
@@ -549,25 +652,49 @@ public class RecommendationService {
         if (amount == null || amount <= 0) {
             return null;
         }
-        return (int) Math.round(amount * ratio);
+        return (int) Math.min(Math.round(amount * ratio), MAX_PRICE);
     }
 
-    /** 취향 메모. 최대 5개까지 허용되므로 쉼표로 끊어 넘긴다. */
-    private List<String> interestsOf(Person person) {
+    /** AI는 gift_price를 0 이하로 받지 않는다(422). 금액이 없거나 0이면 보내지 않는다. */
+    private Integer giftPriceOf(Integer amount) {
+        return amount != null && amount > 0 && amount <= MAX_PRICE ? amount : null;
+    }
+
+    /** AI 쪽 길이 상한에 맞춰 자른다. 우리 컬럼이 더 길어서 그대로 보내면 422가 난다. */
+    private String cut(String value, int max) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.length() <= max ? trimmed : trimmed.substring(0, max);
+    }
+
+    /**
+     * 취향 메모를 취향({@code interests})과 기피({@code dislikes})로 갈라 넘긴다. 각각 최대 5개.
+     *
+     * <p>메모는 "커피 좋아함, 견과류 알레르기"처럼 둘이 섞여 들어온다. 예전처럼 통째로 interests에 넣으면
+     * 알레르기 품목이 <b>관심사로 뒤집혀</b> 전달돼, 하필 그걸 추천하는 최악의 결과가 나온다.</p>
+     */
+    private List<String> memoTokens(Person person, boolean dislike) {
         if (person == null || person.getMemo() == null || person.getMemo().isBlank()) {
             return null;
         }
-        List<String> interests = Arrays.stream(person.getMemo().split("[,·/]"))
+        List<String> tokens = Arrays.stream(person.getMemo().split("[,\u00b7/\n]"))
                 .map(String::trim)
                 .filter(text -> !text.isEmpty())
+                .filter(text -> isDislike(text) == dislike)
                 .limit(MAX_INTERESTS)
                 .toList();
-        return interests.isEmpty() ? null : interests;
+        return tokens.isEmpty() ? null : tokens;
+    }
+
+    private boolean isDislike(String text) {
+        return DISLIKE_MARKERS.stream().anyMatch(text::contains);
     }
 
     private RecommendedGift toEntity(User user, Person person, AiRecommendResponse.Item item,
                                      Map<String, String> images, int order, RecommendationSlot slot,
-                                     boolean fallback, String batchId) {
+                                     boolean fallback, String batchId, int round) {
         String emoji = (item.emoji() == null || item.emoji().isBlank())
                 ? categoryEmojiResolver.resolve(user.getUsername(), item.aiCategory())
                 : item.emoji();
@@ -584,7 +711,9 @@ public class RecommendationService {
                 order,
                 slot,
                 fallback,
-                batchId);
+                batchId,
+                item.aiCategory(),
+                round);
     }
 
 }

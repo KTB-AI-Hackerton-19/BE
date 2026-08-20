@@ -127,13 +127,33 @@ public class RecommendedGift {
     @Column(name = "is_stale")
     private boolean stale;
 
+    /**
+     * 이 세트를 만들 때 AI에 넘겼던(그리고 AI가 골라준) 카테고리.
+     *
+     * <p>'다시 추천받기'가 <b>매번 같은 카드를 주지 않게</b> 하려고 저장한다. 다음 세트를 만들 때
+     * 직전에 무엇으로 뽑았는지 알아야 다른 카테고리로 옮겨갈 수 있는데, 그 근거가 응답에는 남지 않는다.</p>
+     */
+    @Column(length = 50)
+    private String aiCategory;
+
+    /**
+     * 이 대상에 대해 몇 번째로 만든 세트인지(0부터).
+     *
+     * <p>추천 카테고리를 라운드마다 옮기는 데 쓴다({@code AiGiftCategories.rotate}).
+     * 세트가 지워져도 남은 세트의 값에서 이어받으므로 눌렀던 만큼 계속 다음 카테고리로 넘어간다.</p>
+     *
+     * <p>컬럼명을 {@code round_no}로 둔 건 {@code ROUND}가 여러 DB에서 함수 이름이라서다.</p>
+     */
+    @Column(name = "round_no", nullable = false)
+    private int round;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
     public RecommendedGift(User user, Person person, String emoji, String name, Integer amount,
                            RecommendationTag tag, String reason, String productUrl, String imageUrl,
                            String thankYouMessage, Integer displayOrder, RecommendationSlot slot,
-                           boolean fallback, String batchId) {
+                           boolean fallback, String batchId, String aiCategory, int round) {
         this.user = user;
         this.person = person;
         this.emoji = emoji;
@@ -148,6 +168,8 @@ public class RecommendedGift {
         this.slot = slot;
         this.fallback = fallback;
         this.batchId = batchId;
+        this.aiCategory = aiCategory;
+        this.round = round;
         this.createdAt = LocalDateTime.now();
     }
 

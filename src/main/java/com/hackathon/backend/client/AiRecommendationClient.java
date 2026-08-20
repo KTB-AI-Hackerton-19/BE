@@ -75,6 +75,15 @@ public class AiRecommendationClient {
                 return fallback("status=%s error=%s".formatted(info.status(), info.error()), request.personName());
             }
 
+            // 보낸 카테고리와 실제로 돌아온 카테고리를 같이 남긴다. AI는 우리가 지정한 목록과 자기 판단이
+            // 겹치지 않으면 <b>우리 지정을 조용히 무시</b>하므로(AI-SERVICE recommendation_policy.normalize),
+            // 이 둘을 대조하지 않으면 "왜 또 같은 카드가 나오지"를 추적할 수 없다.
+            log.info("AI 추천 카테고리 요청={} 응답={}",
+                    request.categories(),
+                    info.recommendGift().categories() == null ? List.of()
+                            : info.recommendGift().categories().stream()
+                                    .map(AiRecommendResponse.Category::category).toList());
+
             List<AiRecommendResponse.Item> items = GiftRecommendationMapper.toItems(
                     info.recommendGift(), GiftRecommendationMapper.messageOf(info), limit);
             if (items.isEmpty()) {

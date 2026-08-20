@@ -42,7 +42,15 @@ public record AiRecommendRequest(
         /** 받은 이유(생일·집들이 등). 우리 기록의 occasion을 그대로 넘긴다. */
         @JsonProperty("event") String event,
 
-        /** 취향. 최대 5개. Person.memo를 한 줄로 넘긴다. */
-        @JsonProperty("interests") List<String> interests
+        /** 취향. 최대 5개. Person.memo 중 기피 표현이 아닌 것만 넘긴다. */
+        @JsonProperty("interests") List<String> interests,
+
+        /**
+         * 기피 품목. 최대 5개. Person.memo에 섞여 들어오는 "견과류 알레르기" 같은 항목을 여기로 보낸다.
+         *
+         * <p>{@link #interests}와 갈라야 하는 이유가 분명하다. 한 필드로 뭉쳐 보내면 알레르기 품목이
+         * <b>관심사로 뒤집혀</b> 전달돼 AI가 그걸 추천 근거로 삼는다.</p>
+         */
+        @JsonProperty("dislikes") List<String> dislikes
 ) {
 }
