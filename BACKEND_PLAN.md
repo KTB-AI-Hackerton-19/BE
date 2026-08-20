@@ -145,6 +145,7 @@ erDiagram
     USER ||--o{ GIFT_RECORD : owns
     USER ||--o{ REMINDER_TASK : owns
     USER ||--o{ RECOMMENDED_GIFT : owns
+    USER ||--o{ CUSTOM_RELATIONSHIP : adds
     PERSON ||--o{ GIFT_RECORD : gives
     PERSON ||--o{ REMINDER_TASK : targets
     PERSON ||--o{ RECOMMENDED_GIFT : targets
@@ -165,6 +166,12 @@ erDiagram
         string relationship
         date birthday
         string memo
+    }
+
+    CUSTOM_RELATIONSHIP {
+        bigint id PK
+        bigint userId FK
+        string name
     }
 
     CATEGORY {
@@ -271,6 +278,22 @@ erDiagram
 | GET | `/api/categories` | 필터 칩 / 모달 select용 목록 (`includeInactive`, 항목마다 `recordCount` 포함) |
 | POST | `/api/categories` | 카테고리 추가 (재배포 불필요) |
 | PATCH | `/api/categories/{id}` | 이름·이모지·색·순서·노출여부 수정 |
+
+### 관계
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/relationships` | 관계 드롭다운 목록 — **기본 9종 + 내가 추가한 것**. 내가 추가한 항목은 `custom:true`, `code:"CUSTOM"`, `id` 있음 |
+| POST | `/api/relationships` | 관계 추가 (`{"name":"동호회"}`). 재배포 불필요, 추가한 사람에게만 보인다. 기본 9종과 겹치거나 이미 있으면 409 |
+
+기본 9종(가족·친척·연인·배우자·친구·학교 동창·직장 동료·이웃·거래처·기타)은 모두에게 같아서 코드(enum)에 두고,
+사용자가 추가한 것만 `custom_relationships` 테이블에 쌓아 목록을 만들 때 합친다. 사람/기록에는 응답의
+`value` 문자열이 그대로 저장된다(`"친구"`, `"동호회"`).
+
+**서버는 비슷한 값으로 맞춰주지 않는다.** 저장 전 검사는 "이 값이 그 사용자의 드롭다운에 실제로 있는가"
+하나뿐이고, 없으면 관계 미지정(null) + 서버 로그 경고다. 목록에 없는 관계는 `POST`로 추가한 뒤 고르는 것이
+정상 흐름이라, 서버가 짐작해서 다른 값으로 바꾸면 사용자가 굳이 따로 만든 항목이 뭉개진다.
+AI가 사진에서 뽑은 자유 텍스트("대학 동기")도 같은 규칙이라 대개 미지정으로 남고, 사용자가 확인 폼의
+드롭다운에서 직접 고른다.
 
 ### 마음 기록
 | 메서드 | 경로 | 설명 |

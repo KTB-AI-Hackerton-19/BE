@@ -33,10 +33,16 @@ public class Person {
     @Column(nullable = false)
     private String name;
 
-    /** 자유 입력이 아니라 고정 카테고리. 선택 항목이라 미지정(null)을 허용한다. */
-    @Enumerated(EnumType.STRING)
-    @Column(length = 20)
-    private Relationship relationship;
+    /**
+     * 관계. 자유 입력이 아니라 {@code GET /api/relationships}의 값 중 하나를 고른 것이며,
+     * 기본 9종의 한글 라벨("친구") 또는 사용자가 추가한 관계 이름("동호회")이 그대로 들어온다.
+     * 선택 항목이라 미지정(null)을 허용한다.
+     *
+     * <p>enum이 아니라 문자열인 이유는 커스텀 관계가 enum이 될 수 없기 때문이다.
+     * 아무 값이나 들어오지 않도록 저장 전에 {@code RelationshipService.normalize}를 반드시 통과시킨다.</p>
+     */
+    @Column(length = 50)
+    private String relationship;
 
     /** 선택 항목. 입력하지 않으면 null이다. */
     @Enumerated(EnumType.STRING)
@@ -49,7 +55,7 @@ public class Person {
     @Column
     private String memo;
 
-    public Person(User user, String name, Relationship relationship, Gender gender, LocalDate birthday, String memo) {
+    public Person(User user, String name, String relationship, Gender gender, LocalDate birthday, String memo) {
         this.user = user;
         this.name = name;
         this.relationship = relationship;
@@ -59,7 +65,7 @@ public class Person {
     }
 
     /** null로 들어온 필드는 기존 값을 유지한다(부분 수정 PATCH 시맨틱). */
-    public void update(String name, Relationship relationship, Gender gender, LocalDate birthday, String memo) {
+    public void update(String name, String relationship, Gender gender, LocalDate birthday, String memo) {
         if (name != null && !name.isBlank()) {
             this.name = name;
         }

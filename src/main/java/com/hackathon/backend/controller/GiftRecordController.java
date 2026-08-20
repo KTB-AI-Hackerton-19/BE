@@ -5,8 +5,11 @@ import com.hackathon.backend.dto.ApiResponse;
 import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.gift.EventCategoryResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
+import com.hackathon.backend.dto.gift.GiftRecordDeleteResponse;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
+import com.hackathon.backend.dto.gift.GiftRecordPersonLinkRequest;
+import com.hackathon.backend.dto.gift.GiftRecordPersonLinkResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.gift.GiftRecordThankedRequest;
 import com.hackathon.backend.dto.gift.GiftRecordUpdateRequest;
@@ -134,6 +137,21 @@ public class GiftRecordController {
     }
 
     @Operation(
+            summary = "보낸 사람을 '사람들'에 연결",
+            description = "이름만 있고 사람으로 등록되지 않은 기록(응답의 personId가 null인 건)을 Person에 연결한다. "
+                    + "경조사는 하객 전원을 사람으로 만들지 않고 리스트에만 두는 게 기본이라, 사용자가 직접 고른 사람만 "
+                    + "이 API로 뒤늦게 매핑한다. personId를 주면 기존 사람에 붙이고, 안 주면 기록에 적힌 이름으로 새로 만든다. "
+                    + "딸린 답례 알림의 대상도 함께 갱신된다."
+    )
+    @PostMapping("/{id}/person")
+    public ApiResponse<GiftRecordPersonLinkResponse> linkPerson(
+            @Parameter(description = "연결할 기록 ID") @PathVariable Long id,
+            @RequestBody(required = false) GiftRecordPersonLinkRequest request) {
+        return ApiResponse.success(giftRecordService.linkPerson(
+                id, request != null ? request : new GiftRecordPersonLinkRequest(null, null, null)));
+    }
+
+    @Operation(
             summary = "감사 완료 여부 토글",
             description = "기록 카드 우측의 '감사 완료' / '확인 필요' 뱃지를 바꾼다. 답례를 마쳤을 때 thanked=true로 보내면 된다."
     )
@@ -145,13 +163,27 @@ public class GiftRecordController {
     }
 
     @Operation(
-            summary = "마음 기록 삭제",
-            description = "기록과 여기에 연결된 답례 알림을 함께 삭제한다."
+            summary = "마음 기록 삭제 (단일)",
+            description = "기록과 여기에 연결된 답례 알림을 함께 삭제한다. 없는 ID면 404. "
+                    + "보낸 사람(Person)은 지우지 않는다."
     )
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(
             @Parameter(description = "삭제할 기록 ID") @PathVariable Long id) {
         giftRecordService.delete(id);
         return ApiResponse.success(null);
+    }
+
+    @Operation(
+            summary = "마음 기록 삭제 (다중)",
+            description = "목록에서 여러 건을 체크해 한 번에 지울 때 사용한다. 각 기록에 딸린 답례 알림도 함께 삭제된다. "
+                    + "이미 지워졌거나 다른 사용자의 ID는 오류 없이 건너뛰고, 실제로 지워진 건수만 돌려주므로 "
+                    + "\"기록 3건을 삭제했어요\" 같은 안내에 그대로 쓰면 된다. ID를 하나도 보내지 않으면 400. "
+                    + "보낸 사람(Person)은 지우지 않는다 — 사람까지 지우려면 DELETE /api/people을 쓴다."
+    )
+    @DeleteMapping
+    public ApiResponse<GiftRecordDeleteResponse> deleteAll(
+            @Parameter(description = "삭제할 기록 ID 목록 (예: ?ids=1,2,3)") @RequestParam List<Long> ids) {
+        return ApiResponse.success(giftRecordService.deleteAll(ids));
     }
 }

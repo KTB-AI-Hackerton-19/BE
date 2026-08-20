@@ -1,6 +1,7 @@
 package com.hackathon.backend.client;
 
 import com.hackathon.backend.domain.EventCategory;
+import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.exception.CustomException;
 import com.hackathon.backend.exception.ErrorCode;
 import com.hackathon.backend.support.EventClassifier;
@@ -157,8 +158,10 @@ public class AiExtractionClient {
 
     /** 더미는 항상 1명이다. 여러 명 흐름은 실제 AI 응답에서만 나온다. */
     private AiExtractionBatch dummyBatch(String reason) {
+        // 관계는 드롭다운에 실제로 있는 값이어야 한다. 자유 표현("친한 친구")을 쓰면 서버가 맞춰주지 않으므로
+        // 확인 폼의 관계가 늘 비어서, AI 연동이 죽었을 때 그것까지 버그로 보이게 된다.
         AiExtractionResult dummy = new AiExtractionResult(
-                "김민수", "친한 친구", LocalDate.now(), "내 생일",
+                "김민수", Relationship.FRIEND.getLabel(), LocalDate.now(), "내 생일",
                 "스타벅스 케이크", "디저트", 35000, null, null, null, null, null);
         return new AiExtractionBatch(List.of(dummy), null, null, null, true, reason);
     }

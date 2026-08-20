@@ -18,9 +18,15 @@ import java.time.LocalDateTime;
 public record GiftRecordResponse(
         @Schema(description = "기록 ID", example = "1") Long id,
 
-        @Schema(description = "보낸 사람 Person ID (DRAFT 상태면 null)", example = "3") Long personId,
-        @Schema(description = "보낸 사람 이름 — 화면의 person", example = "김민수") String person,
-        @Schema(description = "관계 카테고리 — 화면의 relation", example = "친구") Relationship relation,
+        @Schema(description = "보낸 사람 Person ID. <b>null이면 '사람들'에 등록되지 않은 이름뿐인 기록</b>이다 "
+                + "(경조사 하객 등). 이 경우 화면에서 '사람으로 등록' 버튼을 띄우고 "
+                + "POST /api/gift-records/{id}/person 을 부르면 된다", example = "3") Long personId,
+        @Schema(description = "보낸 사람 이름 — 화면의 person. 등록된 사람 → 사용자가 적은 이름 → AI 원본 순으로 채워진다",
+                example = "김민수") String person,
+        @Schema(description = "관계 — 화면의 relation", example = "친구") String relation,
+
+        @Schema(description = "사람으로 등록하지 않은 보낸 사람 이름. personId가 null일 때 이 값이 곧 표시 이름이며, "
+                + "PATCH로 수정할 수 있다", example = "김민수") String guestName,
 
         @Schema(description = "받은 날짜 — 화면의 date", example = "2026-08-18") LocalDate date,
         @Schema(description = "답례 알림일 — 화면의 reminderDate (미설정이면 null)", example = "2026-09-14") LocalDate reminderDate,
@@ -40,7 +46,7 @@ public record GiftRecordResponse(
         @Schema(description = "감사/답례 완료 여부 — true면 '감사 완료', false면 '확인 필요' 뱃지", example = "true") boolean thanked,
 
         @Schema(description = "AI가 이미지에서 추출한 보낸 사람 이름 (확정 전 확인 폼 프리필용)", example = "김민수") String extractedSenderName,
-        @Schema(description = "AI가 추측한 관계 카테고리 (확정 전 확인 폼 프리필용)", example = "친구") Relationship extractedRelationship,
+        @Schema(description = "AI가 추측한 관계 (확정 전 확인 폼 프리필용)", example = "친구") String extractedRelationship,
         @Schema(description = "AI가 추정한 보낸 사람 나이 (새 사람 등록 폼 프리필용, 없으면 null)", example = "32") Integer extractedAge,
         @Schema(description = "AI가 추정한 보낸 사람 성별 (새 사람 등록 폼 프리필용, 없으면 null)", example = "남성") Gender extractedGender,
         @Schema(description = "원본 이미지 조회용 presigned GET URL (매 응답마다 새로 발급, 15분 만료)") String imageUrl,
@@ -88,8 +94,9 @@ public record GiftRecordResponse(
         return new GiftRecordResponse(
                 record.getId(),
                 person != null ? person.getId() : null,
-                person != null ? person.getName() : record.getExtractedSenderName(),
-                person != null ? person.getRelationship() : record.getExtractedRelationship(),
+                record.displayName(),
+                Relationship.displayLabel(record.displayRelationship()),
+                record.getGuestName(),
                 record.getReceivedDate(),
                 record.getReminderDate(),
                 record.getOccasion(),
@@ -102,7 +109,7 @@ public record GiftRecordResponse(
                 color,
                 record.isThanked(),
                 record.getExtractedSenderName(),
-                record.getExtractedRelationship(),
+                Relationship.displayLabel(record.getExtractedRelationship()),
                 record.getExtractedAge(),
                 record.getExtractedGender(),
                 imageUrl,

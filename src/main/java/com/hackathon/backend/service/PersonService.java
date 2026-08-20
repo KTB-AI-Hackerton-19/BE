@@ -2,7 +2,6 @@ package com.hackathon.backend.service;
 
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
-import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.person.PersonDeleteResponse;
@@ -35,28 +34,32 @@ public class PersonService {
     private final GiftRecordRepository giftRecordRepository;
     private final ReminderTaskRepository reminderTaskRepository;
     private final RecommendedGiftRepository recommendedGiftRepository;
+    private final RelationshipService relationshipService;
 
     public PersonService(PersonRepository personRepository, UserRepository userRepository,
                          GiftRecordRepository giftRecordRepository,
                          ReminderTaskRepository reminderTaskRepository,
-                         RecommendedGiftRepository recommendedGiftRepository) {
+                         RecommendedGiftRepository recommendedGiftRepository,
+                         RelationshipService relationshipService) {
         this.personRepository = personRepository;
         this.userRepository = userRepository;
         this.giftRecordRepository = giftRecordRepository;
         this.reminderTaskRepository = reminderTaskRepository;
         this.recommendedGiftRepository = recommendedGiftRepository;
+        this.relationshipService = relationshipService;
     }
 
     @Transactional
     public PersonResponse create(PersonRequest request) {
         User user = getCurrentUser();
         String createName = request.name().trim();
+        String relation = relationshipService.normalize(request.relation());
         Person existing = firstByName(user.getUsername(), createName);
         Person person = existing != null
                 ? existing
-                : personRepository.save(new Person(user, createName, request.relation(), request.gender(),
+                : personRepository.save(new Person(user, createName, relation, request.gender(),
                         request.birthday(), request.memo()));
-        person.update(null, request.relation(), request.gender(), request.birthday(), request.memo());
+        person.update(null, relation, request.gender(), request.birthday(), request.memo());
         return PersonResponse.of(person, 0L, null, null);
     }
 
@@ -66,7 +69,8 @@ public class PersonService {
         Person person = personRepository.findByIdAndUser_Username(id, username)
                 .orElseThrow(() -> new CustomException(ErrorCode.PERSON_NOT_FOUND));
 
-        person.update(request.name(), request.relation(), request.gender(), request.birthday(), request.memo());
+        person.update(request.name(), relationshipService.normalize(request.relation()), request.gender(),
+                request.birthday(), request.memo());
         return buildSummary(username, person);
     }
 
@@ -192,7 +196,7 @@ public class PersonService {
      * (디자인의 '보낸 사람'이 자유 입력 필드라 사람 선택 UI가 따로 없기 때문)
      */
     @Transactional
-    public Person resolveOrCreate(User user, Long personId, String personName, Relationship relation) {
+    public Person resolveOrCreate(User user, Long personId, String personName, String relation) {
         Person person = resolveOrCreateNullable(user, personId, personName, relation);
         if (person == null) {
             throw new CustomException(ErrorCode.INVALID_INPUT, "보낸 사람(personId 또는 personName)을 입력해주세요.");
@@ -225,7 +229,9 @@ public class PersonService {
 
     /** 위와 같지만 아무 정보도 안 왔으면 null을 돌려준다(PATCH 부분 수정용). */
     @Transactional
-    public Person resolveOrCreateNullable(User user, Long personId, String personName, Relationship relation) {
+    public Person resolveOrCreateNullable(User user, Long personId, String personName, String rawRelation) {
+        // 호출부(기록 등록/수정/연결)마다 다시 맞추지 않아도 되게 여기서 한 번 정리한다. 이미 정리된 값이 와도 그대로다.
+        String relation = relationshipService.normalize(rawRelation);
         if (personId != null) {
             Person person = personRepository.findByIdAndUser_Username(personId, user.getUsername())
                     .orElseThrow(() -> new CustomException(ErrorCode.PERSON_NOT_FOUND));

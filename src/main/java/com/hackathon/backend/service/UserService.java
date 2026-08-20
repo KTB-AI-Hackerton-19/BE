@@ -7,6 +7,7 @@ import com.hackathon.backend.dto.user.WithdrawResponse;
 import com.hackathon.backend.exception.CustomException;
 import com.hackathon.backend.exception.ErrorCode;
 import com.hackathon.backend.repository.CategoryRepository;
+import com.hackathon.backend.repository.CustomRelationshipRepository;
 import com.hackathon.backend.repository.GiftRecordRepository;
 import com.hackathon.backend.repository.GoogleCredentialRepository;
 import com.hackathon.backend.repository.PersonRepository;
@@ -31,6 +32,7 @@ public class UserService {
     private final ReminderTaskRepository reminderTaskRepository;
     private final RecommendedGiftRepository recommendedGiftRepository;
     private final CategoryRepository categoryRepository;
+    private final CustomRelationshipRepository customRelationshipRepository;
     private final GoogleCredentialRepository googleCredentialRepository;
     private final S3PresignService s3PresignService;
 
@@ -38,6 +40,7 @@ public class UserService {
                        GiftRecordRepository giftRecordRepository, ReminderTaskRepository reminderTaskRepository,
                        GoogleCredentialRepository googleCredentialRepository,
                        RecommendedGiftRepository recommendedGiftRepository, CategoryRepository categoryRepository,
+                       CustomRelationshipRepository customRelationshipRepository,
                        S3PresignService s3PresignService) {
         this.userRepository = userRepository;
         this.personRepository = personRepository;
@@ -46,6 +49,7 @@ public class UserService {
         this.googleCredentialRepository = googleCredentialRepository;
         this.recommendedGiftRepository = recommendedGiftRepository;
         this.categoryRepository = categoryRepository;
+        this.customRelationshipRepository = customRelationshipRepository;
         this.s3PresignService = s3PresignService;
     }
 
@@ -99,6 +103,7 @@ public class UserService {
         recommendedGiftRepository.deleteByUser_Username(username);
         personRepository.deleteByUser_Username(username);
         categoryRepository.deleteByUser_Username(username);
+        customRelationshipRepository.deleteByUser_Username(username);
         userRepository.delete(user);
 
         int images = s3PresignService.deleteAllOf(username);
