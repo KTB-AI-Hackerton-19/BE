@@ -31,6 +31,14 @@ public final class EventClassifier {
     /** 경조사인 건 분명한데 경사/조사가 안 갈리는 말들. 이것만 걸리면 경사로 본다(아래 주석 참고). */
     private static final List<String> AMBIGUOUS_WORDS = List.of("경조", "부조", "봉투", "방명록");
 
+    /**
+     * 선물명만 보고도 경조사가 확실한 말들. 일반 선물 이름으로는 절대 쓰이지 않는다.
+     * ("생일 축하 케이크"가 경조사로 넘어가는 걸 막으려고 선물명은 원래 판정에서 뺐는데,
+     *  축의금·부의금처럼 그 자체가 경조사인 것까지 놓치면 반대로 전부 '기타 선물'이 된다.)
+     */
+    private static final List<String> MONEY_WORDS = List.of(
+            "축의금", "축의", "부의금", "부의", "조의금", "조의", "부조금", "부조", "조위금", "근조", "화환");
+
     private static final String CELEBRATION_FALLBACK_NAME = "경사";
     private static final String CONDOLENCE_FALLBACK_NAME = "조사";
 
@@ -72,6 +80,19 @@ public final class EventClassifier {
             }
         }
         return kind == GiftKind.CONDOLENCE ? CONDOLENCE_FALLBACK_NAME : CELEBRATION_FALLBACK_NAME;
+    }
+
+    /**
+     * 선물명 전용 판정. {@link #MONEY_WORDS}에 걸릴 때만 경조사로 보고, 그 외에는 무조건
+     * {@link GiftKind#GIFT}다. 일반 판정({@link #classify})을 선물명에 그대로 쓰면
+     * "졸업 선물", "생일 축하" 같은 평범한 선물이 전부 경조사 탭으로 넘어간다.
+     */
+    public static GiftKind classifyGiftName(String... giftNames) {
+        String haystack = join(giftNames);
+        if (haystack.isEmpty() || !containsAny(haystack, MONEY_WORDS)) {
+            return GiftKind.GIFT;
+        }
+        return classify(haystack);
     }
 
     private static String join(String... texts) {

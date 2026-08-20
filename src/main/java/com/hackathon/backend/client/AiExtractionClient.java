@@ -86,7 +86,8 @@ public class AiExtractionClient {
      * 사람별 payload 목록을 배치로 만든다. 경조사 판정은 <b>사진 단위</b>라, 사람들의 경조사명(event)을
      * 전부 합쳐서 한 번만 분류한다 (한 명만 "축의금"이라고 적혀 있어도 그 사진 전체가 경조사다).
      *
-     * <p>판정 근거로 선물명은 보지 않는다 — "생일 축하 케이크" 같은 평범한 선물이 경조사로 넘어가기 때문이다.</p>
+     * <p>판정 근거는 경조사명(event)과 카테고리다. 선물명은 "부조금·축의금"처럼 그 자체가 경조사인 말일 때만
+     * 본다 — 전부 보면 "생일 축하 케이크" 같은 평범한 선물이 경조사로 넘어간다.</p>
      */
     private AiExtractionBatch toBatch(List<AiExtractResponse.Payload> payloads) {
         List<AiExtractionResult> results = payloads.stream()
@@ -104,10 +105,12 @@ public class AiExtractionClient {
                 .forEach(r -> log.warn("AI 신뢰도 낮음 — 사용자 확인 필요. 이름={} 신뢰도={}", r.senderName(), r.confidence()));
 
         StringBuilder signals = new StringBuilder();
+        StringBuilder giftNames = new StringBuilder();
         LocalDate eventDate = null;
         String eventName = null;
         for (AiExtractResponse.Payload p : payloads) {
-            signals.append(nullToEmpty(p.event())).append(' ');
+            signals.append(nullToEmpty(p.event())).append(' ').append(nullToEmpty(p.category())).append(' ');
+            giftNames.append(nullToEmpty(p.giftName())).append(' ');
             if (eventDate == null) {
                 eventDate = p.eventDate();
             }
@@ -116,6 +119,14 @@ public class AiExtractionClient {
             }
         }
         GiftKind kind = EventClassifier.classify(signals.toString());
+        if (!kind.isEvent()) {
+            // 경조사명이 비어 있어도 선물명이 "부조금"이면 경조사다. 이 경우만 선물명을 본다.
+            kind = EventClassifier.classifyGiftName(giftNames.toString());
+            if (kind.isEvent() && eventName == null) {
+                // 이벤트 이름이 없으면 "경사" 같은 라벨보다 "부조금"이 카드에 낫다. 사용자가 나중에 바꾸면 된다.
+                eventName = payloads.getFirst().giftName();
+            }
+        }
         log.info("AI 분석 완료 — 사람 {}명, 분류 {}{}", results.size(), kind,
                 kind.isEvent() ? " (경조사: %s)".formatted(EventClassifier.eventName(kind, eventName)) : "");
 

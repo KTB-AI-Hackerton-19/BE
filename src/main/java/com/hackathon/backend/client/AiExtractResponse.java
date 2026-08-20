@@ -16,13 +16,13 @@ import java.util.List;
  *
  * <pre>
  * 1) 단건:      { "gift_data": { "payload": { "person_name": "김민수", ... } } }
- * 2) 배열:      { "gift_data": { "payload": [ {...}, {...} ] } }
- * 3) 중첩 배열: { "gift_data": { "payload": { "event": "결혼식", "people": [ {...}, {...} ] } } }
+ * 2) records:   { "gift_data": { "payload": { "gift_name": "부조금", ..., "records": [ {...}, {...} ] } } }
+ * 3) 배열:      { "gift_data": { "payload": [ {...}, {...} ] } }
  * </pre>
  *
- * <p>3번은 공통값(경조사명·행사일·받은 날짜)이 부모에만 있고 사람별 값만 배열에 들어오는 형태라,
- * {@link #payloads()}에서 부모 값을 물려받아 평평하게 펼친다. 스펙이 아직 확정 전이라
- * 한쪽만 지원했다가 AI 팀이 다른 모양으로 주면 그날 바로 막히기 때문에 셋 다 열어뒀다.</p>
+ * <p><b>실제 AI 서비스가 쓰는 것은 2번</b>이다. 평면 필드는 "대표 1건"(가장 큰 금액)이고 전체는
+ * {@code records}에 들어 있어서, records를 안 보면 사진에 몇 명이 있든 항상 1명만 저장된다.
+ * 공통값(경조사명·행사일·받은 날짜)은 부모에만 있을 수 있어 {@link #payloads()}에서 물려받아 펼친다.</p>
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record AiExtractResponse(
@@ -45,7 +45,8 @@ public record AiExtractResponse(
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Payload(
             @JsonProperty("gift_name") String giftName,
-            @JsonProperty("gift_price") Integer giftPrice,
+            /** records 안에서는 이름이 {@code price}다(평면 필드만 {@code gift_price}). 둘 다 받는다. */
+            @JsonProperty("gift_price") @JsonAlias({"price"}) Integer giftPrice,
             @JsonProperty("person_name") String personName,
             @JsonProperty("relationship") String relationship,
             @JsonProperty("received_at") LocalDate receivedAt,
@@ -66,11 +67,32 @@ public record AiExtractResponse(
             /** 행사일. 축의금을 받은 날(received_at)과 다를 수 있어 따로 받는다. */
             @JsonProperty("event_date") @JsonAlias({"eventDate", "target_date", "targetDate"}) LocalDate eventDate,
 
-            /** 중첩 형태(3번)일 때 사람별 값. 공통값은 이 payload(부모)에 있다. */
+            /** 내가 받은 것인지(received) 보낸 것인지(sent). 거래내역 캡처면 출금 건이 섞여 온다. */
+            @JsonProperty("direction") String direction,
+
+            /** AI가 저장 대상에서 뺀 항목이면 false. 명시가 없으면 저장 대상이다. */
+            @JsonProperty("selected") Boolean selected,
+
+            /**
+             * 이미지에서 읽은 <b>전체 기록</b>. 평면 필드는 이 중 대표 1건일 뿐이라, 여러 명이면 여기를 봐야 한다.
+             * AI 서비스의 {@code GiftData.records}가 이 자리다.
+             */
             @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY)
-            @JsonAlias({"persons", "guests", "entries", "gift_list", "gifts", "items"})
+            @JsonProperty("records")
+            @JsonAlias({"people", "persons", "guests", "entries", "gift_list", "gifts", "items"})
             List<Payload> people
     ) {
+
+        /**
+         * 이 기록을 "받은 마음"으로 저장할지. 우리 장부는 받은 것만 담으므로 출금(sent) 건은 뺀다.
+         * 방향을 모르는(unknown/미지정) 건은 남긴다 — 빼버리면 사용자가 확인할 기회조차 없어진다.
+         */
+        boolean storable() {
+            if (Boolean.FALSE.equals(selected)) {
+                return false;
+            }
+            return direction == null || !direction.trim().equalsIgnoreCase("sent");
+        }
 
         /** 사람별 값이 비어 있는 자리만 부모(공통) 값으로 채운다. */
         Payload inheritFrom(Payload parent) {
@@ -86,6 +108,8 @@ public record AiExtractResponse(
                     confidence != null ? confidence : parent.confidence(),
                     event != null ? event : parent.event(),
                     eventDate != null ? eventDate : parent.eventDate(),
+                    direction != null ? direction : parent.direction(),
+                    selected,
                     null
             );
         }
@@ -120,11 +144,15 @@ public record AiExtractResponse(
                 flat.add(payload);
                 continue;
             }
+            List<Payload> children = new ArrayList<>();
             for (Payload child : payload.people()) {
-                if (child != null) {
-                    flat.add(child.inheritFrom(payload));
+                if (child != null && child.storable()) {
+                    children.add(child.inheritFrom(payload));
                 }
             }
+            // 전부 걸러졌으면(예: 전부 출금 건) 대표 1건이라도 남긴다. 빈 결과는 폴백 더미로 이어져
+            // "AI가 죽었다"는 잘못된 신호가 되기 때문이다.
+            flat.addAll(children.isEmpty() ? List.of(payload) : children);
         }
         return flat;
     }
