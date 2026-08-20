@@ -32,7 +32,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -85,13 +87,16 @@ public class RecommendationService {
     private final ProductImageResolver productImageResolver;
     private final RecommendationPrefetcher prefetcher;
 
+    private final TransactionTemplate txTemplate;
+
     public RecommendationService(RecommendedGiftRepository recommendedGiftRepository, PersonRepository personRepository,
                                  GiftRecordRepository giftRecordRepository, UserRepository userRepository,
                                  ReminderTaskRepository reminderTaskRepository,
                                  CategoryEmojiResolver categoryEmojiResolver,
                                  AiRecommendationClient aiRecommendationClient,
                                  ProductImageResolver productImageResolver,
-                                 RecommendationPrefetcher prefetcher) {
+                                 RecommendationPrefetcher prefetcher,
+                                 PlatformTransactionManager transactionManager) {
         this.recommendedGiftRepository = recommendedGiftRepository;
         this.personRepository = personRepository;
         this.giftRecordRepository = giftRecordRepository;
@@ -101,6 +106,7 @@ public class RecommendationService {
         this.aiRecommendationClient = aiRecommendationClient;
         this.productImageResolver = productImageResolver;
         this.prefetcher = prefetcher;
+        this.txTemplate = new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -199,37 +205,82 @@ public class RecommendationService {
      * 다른 하나는 <b>더미 폴백</b>으로 채워진 세트다. 후자를 굳이 다시 만드는 이유는, 그러지 않으면
      * AI가 잠깐 죽었을 때 만들어진 더미가 "캐시가 차 있다"는 이유로 눌러앉아 계속 화면에 나가기 때문이다.</p>
      */
-    @Transactional
     public void warm(String username, Long personId, String event, int size) {
-        // 'size보다 적은지'가 아니라 '비었는지'로 판단한다. AI가 요청보다 적은 수를 주는 일이 흔한데
-        // 개수로 재면 그 세트는 영원히 미달로 보여서 화면을 열 때마다 AI를 다시 부르게 된다.
-        List<RecommendedGift> current = findCached(username, personId, RecommendationSlot.CURRENT);
-        if (current.isEmpty() || needsRefresh(current)) {
-            regenerate(username, personId, event, size, RecommendationSlot.CURRENT, current);
-            return;   // CURRENT를 채우는 데 이미 AI를 한 번 불렀다. NEXT는 다음 진입 때 채운다.
+        WarmPlan plan = txTemplate.execute(status -> planWarm(username, personId, event, size));
+        if (plan == null) {
+            return;   // 지금 캐시로 충분하다
         }
 
-        List<RecommendedGift> waiting = findCached(username, personId, RecommendationSlot.NEXT);
-        if (!waiting.isEmpty() && !needsRefresh(waiting)) {
-            return;   // 이미 대기 중인 세트가 있으면 AI를 또 부르지 않는다
-        }
-        regenerate(username, personId, event, size, RecommendationSlot.NEXT, waiting);
+        // AI 호출은 반드시 트랜잭션 '밖'이다. 안에서 부르면 지울 행의 잠금을 AI 응답 시간(8~9초) 내내 쥐고 있게 되고,
+        // 그 사이 같은 대상을 건드리는 화면 요청이 "Timeout trying to lock table RECOMMENDED_GIFTS"로 500이 난다.
+        // 예열은 화면을 빠르게 하려고 도는 건데 그게 화면을 죽이면 본말전도다. 그래서 경계를 직접 긋는다.
+        GeneratedSet generated = callAi(plan.request(), plan.size());
+
+        txTemplate.executeWithoutResult(status -> storeWarm(plan, generated));
     }
 
-    /** 쓸모없어진 세트를 지우고 그 자리에 새로 만든다. */
-    private void regenerate(String username, Long personId, String event, int size,
-                            RecommendationSlot slot, List<RecommendedGift> obsolete) {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+    /** 예열 계획 하나. AI 호출을 트랜잭션 밖에서 하려고, 필요한 판단을 미리 다 끝내서 들고 나간다. */
+    private record WarmPlan(String username, Long personId, RecommendationSlot slot, int size,
+                            List<Long> obsoleteIds, AiRecommendRequest request) {
+    }
+
+    /** AI가 만들어준 세트(아직 저장 전). */
+    private record GeneratedSet(List<AiRecommendResponse.Item> items, Map<String, String> images,
+                                boolean fallback, String batchId) {
+    }
+
+    /**
+     * 다시 만들 필요가 있는지 판단하고, 보낼 AI 요청까지 조립해 둔다. 필요 없으면 null.
+     *
+     * <p>화면이 기다리는 자리는 {@link RecommendationSlot#CURRENT}라 거기부터 채우고,
+     * 그게 멀쩡할 때만 '다시 추천받기'용 {@link RecommendationSlot#NEXT}를 채운다.</p>
+     */
+    private WarmPlan planWarm(String username, Long personId, String event, int size) {
         Person person = personId == null ? null
                 : personRepository.findByIdAndUser_Username(personId, username).orElse(null);
         if (personId != null && person == null) {
-            return;   // 미리받기를 준비하는 사이에 사람이 지워졌다
+            return null;   // 예열을 준비하는 사이에 사람이 지워졌다
         }
 
-        recommendedGiftRepository.deleteAll(obsolete);
-        recommendedGiftRepository.flush();
-        generate(user, username, person, event, size, slot);
+        // 'size보다 적은지'가 아니라 '비었는지'로 판단한다. AI가 요청보다 적은 수를 주는 일이 흔한데
+        // 개수로 재면 그 세트는 영원히 미달로 보여서 화면을 열 때마다 AI를 다시 부르게 된다.
+        List<RecommendedGift> current = findCached(username, personId, RecommendationSlot.CURRENT);
+        RecommendationSlot slot;
+        List<RecommendedGift> obsolete;
+        if (current.isEmpty() || needsRefresh(current)) {
+            slot = RecommendationSlot.CURRENT;
+            obsolete = current;
+        } else {
+            List<RecommendedGift> waiting = findCached(username, personId, RecommendationSlot.NEXT);
+            if (!waiting.isEmpty() && !needsRefresh(waiting)) {
+                return null;   // 이미 대기 중인 세트가 있으면 AI를 또 부르지 않는다
+            }
+            slot = RecommendationSlot.NEXT;
+            obsolete = waiting;
+        }
+
+        return new WarmPlan(username, personId, slot, size,
+                obsolete.stream().map(RecommendedGift::getId).toList(),
+                buildRequest(username, person, event));
+    }
+
+    /** 만들어둔 세트를 짧은 트랜잭션 안에서 갈아끼운다. */
+    private void storeWarm(WarmPlan plan, GeneratedSet generated) {
+        User user = userRepository.findByUsername(plan.username()).orElse(null);
+        if (user == null) {
+            return;
+        }
+        Person person = plan.personId() == null ? null
+                : personRepository.findByIdAndUser_Username(plan.personId(), plan.username()).orElse(null);
+        if (plan.personId() != null && person == null) {
+            return;
+        }
+
+        if (!plan.obsoleteIds().isEmpty()) {
+            recommendedGiftRepository.deleteAllById(plan.obsoleteIds());
+            recommendedGiftRepository.flush();
+        }
+        persist(user, person, generated, plan.slot());
     }
 
     /**
@@ -371,20 +422,26 @@ public class RecommendationService {
      */
     private List<RecommendedGift> generate(User user, String username, Person person, String event,
                                            int size, RecommendationSlot slot) {
-        String batchId = java.util.UUID.randomUUID().toString();
-        AiRecommendResponse.Result result =
-                aiRecommendationClient.recommend(buildRequest(username, person, event), size);
+        return persist(user, person, callAi(buildRequest(username, person, event), size), slot);
+    }
+
+    /** AI 호출 + 상품 이미지 수집. DB를 건드리지 않으므로 트랜잭션 밖에서 불러도 된다(예열이 그렇게 쓴다). */
+    private GeneratedSet callAi(AiRecommendRequest request, int size) {
+        AiRecommendResponse.Result result = aiRecommendationClient.recommend(request, size);
         List<AiRecommendResponse.Item> items = result.items();
-        List<AiRecommendResponse.Item> selected =
-                items.size() > size ? items.subList(0, size) : items;
+        List<AiRecommendResponse.Item> selected = items.size() > size ? items.subList(0, size) : items;
 
         Map<String, String> images = productImageResolver.resolveAll(
                 selected.stream().map(AiRecommendResponse.Item::productUrl).toList());
+        return new GeneratedSet(selected, images, result.fallback(), java.util.UUID.randomUUID().toString());
+    }
 
+    private List<RecommendedGift> persist(User user, Person person, GeneratedSet generated,
+                                          RecommendationSlot slot) {
         return recommendedGiftRepository.saveAll(
-                java.util.stream.IntStream.range(0, selected.size())
-                        .mapToObj(i -> toEntity(user, person, selected.get(i), images, i, slot,
-                                result.fallback(), batchId))
+                java.util.stream.IntStream.range(0, generated.items().size())
+                        .mapToObj(i -> toEntity(user, person, generated.items().get(i), generated.images(), i,
+                                slot, generated.fallback(), generated.batchId()))
                         .toList());
     }
 

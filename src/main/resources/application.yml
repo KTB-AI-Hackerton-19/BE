@@ -32,7 +32,15 @@ ai:
     url: ${AI_SERVICE_URL:http://13.209.6.148:8000}
     api-key: ${AI_SERVICE_API_KEY:}
     timeout-ms: ${AI_SERVICE_TIMEOUT_MS:60000}
+    # 추천만 따로 끊을 수 있게 둔다. 홈 화면을 여는 길목이라 오래 붙잡히면 앱이 멈춘 것처럼 보인다.
+    # 비워두면 위 timeout-ms를 그대로 쓴다. 발표 직전엔 20000 정도로 낮춰두면 최악의 대기가 짧아진다.
+    recommend-timeout-ms: ${AI_RECOMMEND_TIMEOUT_MS:${AI_SERVICE_TIMEOUT_MS:60000}}
     pre-request-delay-ms: ${AI_PRE_REQUEST_DELAY_MS:5000}
+  # 추천 상품 링크에서 og:image를 긁어와 카드 썸네일로 쓴다. 쇼핑몰이 느리거나 봇을 막으면 그냥 비고,
+  # 문제가 생기면 enabled=false로 껐을 때 추천 자체는 그대로 동작한다.
+  product-image:
+    enabled: ${PRODUCT_IMAGE_ENABLED:true}
+    timeout-ms: ${PRODUCT_IMAGE_TIMEOUT_MS:3000}
 
 springdoc:
   swagger-ui:
