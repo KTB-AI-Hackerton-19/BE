@@ -68,6 +68,16 @@ public record AiRecommendResponse(
     }
 
     /**
+     * 추천 한 세트와, 그게 <b>진짜 AI 결과인지 더미 폴백인지</b>.
+     *
+     * <p>이 구분을 굳이 밖으로 들고 나가는 이유는 추천이 DB에 캐시되기 때문이다. AI가 잠깐 죽었을 때
+     * 더미를 그냥 저장해버리면, 그 뒤로 캐시가 차 있으니 아무도 다시 만들지 않아서
+     * <b>더미가 영구히 화면에 박힌다</b>. 폴백이라는 걸 알아야 나중에 조용히 진짜 추천으로 갈아끼울 수 있다.</p>
+     */
+    public record Result(List<Item> items, boolean fallback) {
+    }
+
+    /**
      * 서비스 계층이 쓰는 카드 한 장. AI 응답을 화면 모양으로 변환한 결과.
      *
      * <p>{@code emoji}는 AI가 주지 않으므로 보통 null이고, 서비스가 {@code aiCategory} 이름으로

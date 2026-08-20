@@ -38,16 +38,33 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
  * 선물 추천. AI 서비스가 없으면 {@link AiRecommendationClient}가 더미로 폴백하므로 프론트는 지금 바로 붙일 수 있다.
- * 생성된 추천은 {@code recommended_gifts}에 저장해두고 같은 대상에 대해 재사용하며, refresh=true면 새로 생성한다.
- * 다만 그 자리에서 AI를 부르면 버튼이 몇 초간 멈춰 보이므로, 화면을 그릴 때마다 다음 세트를
- * {@link RecommendationSlot#NEXT} 자리에 미리 만들어 두고 refresh 때는 그걸 승격시켜 즉시 응답한다
- * ({@link RecommendationPrefetcher}).
  * 대상 인물은 사용자가 지정하지 않고, 답례 알림(reminderDate)이 가장 가까운 날짜에 있는 사람들을 자동 선정한다.
+ *
+ * <p><b>원칙: 화면 요청은 AI를 기다리지 않는다.</b> AI 추천은 실측 8~9초라, 한 번이라도 요청 스레드에서 부르면
+ * 그 화면은 멈춘 것처럼 보인다. 그래서 생성된 추천은 {@code recommended_gifts}에 저장해두고
+ * 실제 생성은 전부 {@link RecommendationPrefetcher}(백그라운드)로 민다. 요청 스레드가 AI를 부르는 건
+ * 캐시가 정말 하나도 없을 때(가입 직후)뿐이다.</p>
+ *
+ * <p>자리는 둘이다. {@link RecommendationSlot#CURRENT}는 지금 화면에 보이는 세트,
+ * {@link RecommendationSlot#NEXT}는 '다시 추천받기'용으로 미리 만들어 둔 세트다. refresh 때는 NEXT를 승격시켜
+ * 즉시 응답하고, 응답을 내려보낸 뒤 그다음 세트를 또 만들어 둔다.</p>
+ *
+ * <p>기록이 바뀌어 추천 근거가 달라지면 CURRENT를 <b>지우지 않고 낡음 표시만</b> 한다
+ * ({@link RecommendationCache}). 화면은 직전 세트를 즉시 받고, 새 세트는 백그라운드에서 만들어져 다음 진입에 나간다.
  */
 @Service
 public class RecommendationService {
 
-    private static final int DEFAULT_LIMIT = 3;
+    public static final int DEFAULT_LIMIT = 3;
+
+    /**
+     * 캐시를 버린 직후 <b>백그라운드로</b> 다시 채워둘 사람 수 상한.
+     *
+     * <p>같은 날짜에 답례할 사람이 여럿이면 그 수만큼 AI를 부르게 되므로 상한을 둔다.
+     * 홈은 한 명만 보여주고({@code MAX_DASHBOARD_RECOMMENDATION_GROUPS}) 추천 목록 화면이 나머지를 보는데,
+     * 앞쪽 몇 명만 데워둬도 대부분의 진입이 캐시에 맞는다.</p>
+     */
+    private static final int WARM_GROUP_LIMIT = 3;
     /** 그룹 수를 제한하지 않는다는 표시. */
     public static final int NO_GROUP_LIMIT = 0;
 
@@ -115,7 +132,7 @@ public class RecommendationService {
             List<RecommendationResponse> general = recommendFor(user, username, null, null, size, refresh).stream()
                     .map(RecommendationResponse::from)
                     .toList();
-            schedulePrefetch(username, List.of(new PrefetchTarget(null, null)), size);
+            schedulePrefetch(username, List.of(new WarmTarget(null, null)), size);
             return List.of(new PersonRecommendationResponse(null, null, null, null, null, general));
         }
 
@@ -138,13 +155,13 @@ public class RecommendationService {
                 .toList();
 
         schedulePrefetch(username,
-                targets.stream().map(o -> new PrefetchTarget(o.person().getId(), o.event())).toList(),
+                targets.stream().map(o -> new WarmTarget(o.person().getId(), o.event())).toList(),
                 size);
         return groups;
     }
 
     /** 미리받기 대상 하나. 스레드를 넘어가므로 엔티티가 아니라 식별자만 들고 간다. */
-    private record PrefetchTarget(Long personId, String event) {
+    public record WarmTarget(Long personId, String event) {
     }
 
     /**
@@ -153,7 +170,7 @@ public class RecommendationService {
      * <p>커밋 이후에 띄우는 이유는, refresh로 NEXT를 CURRENT로 승격시킨 변경이 아직 커밋되지 않은 상태에서
      * 미리받기가 돌면 "NEXT가 아직 차 있다"고 보고 그냥 돌아가 버리기 때문이다. 그러면 다음 버튼이 다시 느려진다.</p>
      */
-    private void schedulePrefetch(String username, List<PrefetchTarget> targets, int size) {
+    private void schedulePrefetch(String username, List<WarmTarget> targets, int size) {
         Runnable task = () -> targets.forEach(
                 target -> prefetcher.prefetch(username, target.personId(), target.event(), size));
 
@@ -170,16 +187,38 @@ public class RecommendationService {
     }
 
     /**
-     * 다음 '다시 추천받기'에 쓸 세트를 {@link RecommendationSlot#NEXT} 자리에 만들어 둔다.
+     * 한 대상의 추천 캐시를 백그라운드에서 채워둔다. 화면이 AI를 <b>기다리지 않게</b> 만드는 지점이다.
      * 백그라운드 스레드에서 호출되므로 SecurityContext에 기대지 않고 username을 직접 받는다.
+     *
+     * <p>채우는 순서가 중요하다. 예전에는 {@link RecommendationSlot#NEXT}(=다시 추천받기용)만 채웠는데,
+     * 정작 화면이 기다리는 자리는 {@link RecommendationSlot#CURRENT}다. CURRENT가 비는 경우
+     * — 서버 재시작(인메모리 H2), 기록 등록/수정으로 캐시를 버린 직후, 답례 대상이 다른 사람으로 바뀐 직후 —
+     * 홈 진입이 그대로 AI 응답 시간만큼 멈췄다. 그래서 <b>CURRENT부터</b> 채우고, 그게 준비된 뒤에 NEXT를 채운다.</p>
+     *
+     * <p>다시 만들어야 하는 세트는 둘이다. 하나는 <b>낡음 표시된</b> 세트(기록이 바뀌어 근거가 달라진 것),
+     * 다른 하나는 <b>더미 폴백</b>으로 채워진 세트다. 후자를 굳이 다시 만드는 이유는, 그러지 않으면
+     * AI가 잠깐 죽었을 때 만들어진 더미가 "캐시가 차 있다"는 이유로 눌러앉아 계속 화면에 나가기 때문이다.</p>
      */
     @Transactional
-    public void prepareNext(String username, Long personId, String event, int size) {
-        List<RecommendedGift> waiting = findCached(username, personId, RecommendationSlot.NEXT);
-        if (waiting.size() >= size) {
-            return;   // 이미 대기 중인 세트가 있으면 AI를 또 부르지 않는다
+    public void warm(String username, Long personId, String event, int size) {
+        // 'size보다 적은지'가 아니라 '비었는지'로 판단한다. AI가 요청보다 적은 수를 주는 일이 흔한데
+        // 개수로 재면 그 세트는 영원히 미달로 보여서 화면을 열 때마다 AI를 다시 부르게 된다.
+        List<RecommendedGift> current = findCached(username, personId, RecommendationSlot.CURRENT);
+        if (current.isEmpty() || needsRefresh(current)) {
+            regenerate(username, personId, event, size, RecommendationSlot.CURRENT, current);
+            return;   // CURRENT를 채우는 데 이미 AI를 한 번 불렀다. NEXT는 다음 진입 때 채운다.
         }
 
+        List<RecommendedGift> waiting = findCached(username, personId, RecommendationSlot.NEXT);
+        if (!waiting.isEmpty() && !needsRefresh(waiting)) {
+            return;   // 이미 대기 중인 세트가 있으면 AI를 또 부르지 않는다
+        }
+        regenerate(username, personId, event, size, RecommendationSlot.NEXT, waiting);
+    }
+
+    /** 쓸모없어진 세트를 지우고 그 자리에 새로 만든다. */
+    private void regenerate(String username, Long personId, String event, int size,
+                            RecommendationSlot slot, List<RecommendedGift> obsolete) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
         Person person = personId == null ? null
@@ -188,9 +227,39 @@ public class RecommendationService {
             return;   // 미리받기를 준비하는 사이에 사람이 지워졌다
         }
 
-        recommendedGiftRepository.deleteAll(waiting);
+        recommendedGiftRepository.deleteAll(obsolete);
         recommendedGiftRepository.flush();
-        generate(user, username, person, event, size, RecommendationSlot.NEXT);
+        generate(user, username, person, event, size, slot);
+    }
+
+    /**
+     * 그대로 두면 안 되는 세트인지 — 근거가 바뀌어 낡음 표시가 붙었거나, AI가 아니라 더미로 채워진 경우.
+     * 비어 있으면 false다(비었다는 판단은 호출부가 따로 한다).
+     */
+    private boolean needsRefresh(List<RecommendedGift> gifts) {
+        return !gifts.isEmpty()
+                && (gifts.stream().anyMatch(RecommendedGift::isStale)
+                        || gifts.stream().allMatch(RecommendedGift::isFallback));
+    }
+
+    /**
+     * 홈이 다음에 요구할 대상들. 캐시를 버린 직후 무엇을 데워야 하는지 판단하는 데 쓴다.
+     *
+     * <p>버려진 사람이 아니라 <b>화면이 다음에 볼 사람</b>을 데운다는 게 핵심이다. 기록을 하나 등록하면
+     * 답례 알림이 새로 생겨 가장 가까운 대상 자체가 바뀔 수 있어서, 방금 지운 사람만 데우면 헛수고가 된다.</p>
+     */
+    @Transactional(readOnly = true)
+    public List<WarmTarget> upcomingWarmTargets(String username) {
+        List<Occasion> occasions = upcomingOccasions(username, LocalDate.now());
+        if (occasions.isEmpty()) {
+            return List.of(new WarmTarget(null, null));   // 대상 없는 일반 추천
+        }
+        LocalDate nearestDate = occasions.getFirst().date();
+        return occasions.stream()
+                .filter(occasion -> occasion.date().equals(nearestDate))
+                .limit(WARM_GROUP_LIMIT)
+                .map(occasion -> new WarmTarget(occasion.person().getId(), occasion.event()))
+                .toList();
     }
 
     /**
@@ -259,7 +328,7 @@ public class RecommendationService {
         List<RecommendationResponse> gifts = recommendFor(user, username, person, null, size, refresh).stream()
                 .map(RecommendationResponse::from)
                 .toList();
-        schedulePrefetch(username, List.of(new PrefetchTarget(personId, null)), size);
+        schedulePrefetch(username, List.of(new WarmTarget(personId, null)), size);
         return gifts;
     }
 
@@ -302,8 +371,10 @@ public class RecommendationService {
      */
     private List<RecommendedGift> generate(User user, String username, Person person, String event,
                                            int size, RecommendationSlot slot) {
-        List<AiRecommendResponse.Item> items =
+        String batchId = java.util.UUID.randomUUID().toString();
+        AiRecommendResponse.Result result =
                 aiRecommendationClient.recommend(buildRequest(username, person, event), size);
+        List<AiRecommendResponse.Item> items = result.items();
         List<AiRecommendResponse.Item> selected =
                 items.size() > size ? items.subList(0, size) : items;
 
@@ -312,7 +383,8 @@ public class RecommendationService {
 
         return recommendedGiftRepository.saveAll(
                 java.util.stream.IntStream.range(0, selected.size())
-                        .mapToObj(i -> toEntity(user, person, selected.get(i), images, i, slot))
+                        .mapToObj(i -> toEntity(user, person, selected.get(i), images, i, slot,
+                                result.fallback(), batchId))
                         .toList());
     }
 
@@ -320,11 +392,36 @@ public class RecommendationService {
         return gifts.size() > size ? gifts.subList(0, size) : gifts;
     }
 
+    /**
+     * 한 슬롯의 캐시를 읽는다. 세트가 두 벌 들어 있으면 <b>가장 최근 것만</b> 쓰고 나머지는 버린다.
+     *
+     * <p>두 벌이 생기는 건 미리받기와 화면 요청이 "캐시가 비었다"를 동시에 보고 둘 다 AI를 부른 경우다.
+     * 서로의 저장을 못 보기 때문에(각자 트랜잭션) 막을 수는 없고, 읽을 때 정리한다.
+     * 그냥 두면 {@code displayOrder} 정렬만으로는 서로 다른 세트의 카드가 섞여 나간다.</p>
+     */
     private List<RecommendedGift> findCached(String username, Long personId, RecommendationSlot slot) {
-        return personId == null
+        List<RecommendedGift> rows = personId == null
                 ? recommendedGiftRepository.findByUser_UsernameAndPersonIsNullAndSlotOrderByDisplayOrderAsc(username, slot)
                 : recommendedGiftRepository.findByUser_UsernameAndPerson_IdAndSlotOrderByDisplayOrderAsc(
                         username, personId, slot);
+        if (rows.size() <= 1) {
+            return rows;
+        }
+
+        Map<String, List<RecommendedGift>> batches = rows.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        gift -> gift.getBatchId() == null ? "" : gift.getBatchId()));
+        if (batches.size() <= 1) {
+            return rows;
+        }
+
+        List<RecommendedGift> newest = batches.values().stream()
+                .max(Comparator.comparing(batch -> batch.getFirst().getCreatedAt()))
+                .orElse(rows);
+        List<RecommendedGift> losers = rows.stream().filter(gift -> !newest.contains(gift)).toList();
+        recommendedGiftRepository.deleteAll(losers);
+        recommendedGiftRepository.flush();
+        return newest;
     }
 
     /**
@@ -412,7 +509,8 @@ public class RecommendationService {
     }
 
     private RecommendedGift toEntity(User user, Person person, AiRecommendResponse.Item item,
-                                     Map<String, String> images, int order, RecommendationSlot slot) {
+                                     Map<String, String> images, int order, RecommendationSlot slot,
+                                     boolean fallback, String batchId) {
         String emoji = (item.emoji() == null || item.emoji().isBlank())
                 ? categoryEmojiResolver.resolve(user.getUsername(), item.aiCategory())
                 : item.emoji();
@@ -427,7 +525,9 @@ public class RecommendationService {
                 item.productUrl() == null ? null : images.get(item.productUrl()),
                 item.thankYouMessage(),
                 order,
-                slot);
+                slot,
+                fallback,
+                batchId);
     }
 
 }

@@ -30,9 +30,16 @@ public class AiRecommendationClient {
     private final RestClient restClient;
     private final String aiServiceUrl;
 
+    /**
+     * @param timeoutMs 추천 전용 타임아웃. 이미지 추출({@code ai.service.timeout-ms})과 따로 두는 이유는
+     *                  기다리는 자리가 다르기 때문이다. 추출은 사용자가 "분석 중" 화면을 보며 기다리는 작업이라
+     *                  길어도 되지만, 추천은 홈 화면을 여는 길목이라 오래 붙잡으면 앱 전체가 멈춘 것처럼 보인다.
+     *                  더미로 떨어져도 그 세트에는 폴백 표시가 남아 백그라운드에서 진짜 추천으로 교체되므로,
+     *                  짧게 끊는 쪽이 안전하다. 기본값은 기존 값 그대로라 설정을 안 바꾸면 동작도 그대로다.
+     */
     public AiRecommendationClient(@Value("${ai.service.url}") String aiServiceUrl,
                                   @Value("${ai.service.api-key}") String apiKey,
-                                  @Value("${ai.service.timeout-ms}") int timeoutMs) {
+                                  @Value("${ai.service.recommend-timeout-ms:${ai.service.timeout-ms}}") int timeoutMs) {
         this.aiServiceUrl = aiServiceUrl;
 
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
@@ -45,7 +52,7 @@ public class AiRecommendationClient {
                 .build();
     }
 
-    public List<AiRecommendResponse.Item> recommend(AiRecommendRequest request, int limit) {
+    public AiRecommendResponse.Result recommend(AiRecommendRequest request, int limit) {
         if (aiServiceUrl == null || aiServiceUrl.isBlank()) {
             return fallback("AI_SERVICE_URL이 설정되지 않았습니다.", request.personName());
         }
@@ -73,7 +80,7 @@ public class AiRecommendationClient {
             if (items.isEmpty()) {
                 return fallback("추천 카테고리/상품이 비어 있습니다.", request.personName());
             }
-            return items;
+            return new AiRecommendResponse.Result(items, false);
         } catch (RestClientResponseException e) {
             return fallback("AI %s: %s".formatted(e.getStatusCode(), e.getResponseBodyAsString()), request.personName());
         } catch (RestClientException e) {
@@ -85,9 +92,9 @@ public class AiRecommendationClient {
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
-    private List<AiRecommendResponse.Item> fallback(String reason, String personName) {
+    private AiRecommendResponse.Result fallback(String reason, String personName) {
         log.error("AI 추천 실패 — 더미로 대체합니다. 화면 값은 AI 결과가 아닙니다. 사유: {}", reason);
-        return dummyItems(personName);
+        return new AiRecommendResponse.Result(dummyItems(personName), true);
     }
 
     private List<AiRecommendResponse.Item> dummyItems(String personName) {

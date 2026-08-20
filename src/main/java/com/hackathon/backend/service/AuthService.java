@@ -21,13 +21,15 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
     private final CategoryService categoryService;
+    private final RecommendationPrefetcher recommendationPrefetcher;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtProvider jwtProvider,
-                       CategoryService categoryService) {
+                       CategoryService categoryService, RecommendationPrefetcher recommendationPrefetcher) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
         this.categoryService = categoryService;
+        this.recommendationPrefetcher = recommendationPrefetcher;
     }
 
     @Transactional
@@ -49,6 +51,10 @@ public class AuthService {
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
             throw new CustomException(ErrorCode.LOGIN_FAILED);
         }
+
+        // 로그인 직후 홈 추천을 미리 만들어 둔다. 로그인 → 홈 사이의 몇백 ms가 AI를 기다릴 시간을 벌어준다.
+        // 특히 서버를 재시작하면 인메모리 H2라 추천 캐시가 통째로 비는데, 그 첫 진입이 여기서 덮인다.
+        recommendationPrefetcher.warmUpcoming(user.getUsername(), RecommendationService.DEFAULT_LIMIT);
 
         return issueTokens(user);
     }
