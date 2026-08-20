@@ -5,6 +5,7 @@ import com.hackathon.backend.domain.Gender;
 import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.domain.ReminderTask;
 import com.hackathon.backend.domain.User;
 import com.hackathon.backend.repository.CategoryRepository;
@@ -140,8 +141,9 @@ public class DemoDataInitializer {
     private static final List<String> GIVEN_NAMES =
             List.of("민수", "지영", "서준", "유나", "하늘", "도현", "소희", "예린", "태호", "수진", "지훈", "다은",
                     "현우", "채원", "준영", "서윤", "건우", "하린", "시우", "지안");
-    private static final List<String> RELATIONS =
-            List.of("회사 동료", "대학 친구", "고등학교 친구", "사촌", "이웃", "동호회 친구", "거래처", "선배", "후배");
+    private static final List<Relationship> RELATIONS =
+            List.of(Relationship.WORK, Relationship.SCHOOL, Relationship.FRIEND, Relationship.RELATIVE,
+                    Relationship.NEIGHBOR, Relationship.BUSINESS, Relationship.FAMILY);
     private static final List<String> GIFT_NAMES =
             List.of("핸드크림 세트", "커피 원두", "머그컵", "무릎담요", "디퓨저", "티 세트", "양말 세트", "떡 세트",
                     "과일 바구니", "케이크", "화분", "향초", "책", "문구 세트", "에코백");
@@ -234,7 +236,8 @@ public class DemoDataInitializer {
         for (PersonSeed seed : PEOPLE) {
             LocalDate birthday = seed.birthdayInDays() == null ? null : today.plusDays(seed.birthdayInDays());
             people.put(seed.name(),
-                    personRepository.save(new Person(user, seed.name(), seed.relation(), seed.gender(), birthday, seed.memo())));
+                    personRepository.save(new Person(user, seed.name(), Relationship.from(seed.relation()), seed.gender(),
+                            birthday, seed.memo())));
         }
 
         List<ReminderTask> reminders = new ArrayList<>();

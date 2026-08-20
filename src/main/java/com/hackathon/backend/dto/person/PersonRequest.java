@@ -1,6 +1,7 @@
 package com.hackathon.backend.dto.person;
 
 import com.hackathon.backend.domain.Gender;
+import com.hackathon.backend.domain.Relationship;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import java.time.LocalDate;
@@ -10,7 +11,8 @@ public record PersonRequest(
         @Schema(description = "이름", example = "김민수")
         @NotBlank(message = "이름을 입력해주세요.") String name,
 
-        @Schema(description = "관계 (예: 친한 친구, 직장 동료, 대학 동기)", example = "친한 친구") String relation,
+        @Schema(description = "관계 카테고리 — 자유 입력이 아니라 GET /api/relationships 의 라벨 중 하나. "
+                + "한글 라벨(친구) / enum 이름(FRIEND) 모두 허용", example = "친구") Relationship relation,
 
         @Schema(description = "성별 — 선택 항목. 한글 라벨(남성/여성/기타) 또는 enum 이름(MALE/FEMALE/OTHER) 모두 허용. "
                 + "선물 추천의 참고 정보로 쓰인다", example = "남성")

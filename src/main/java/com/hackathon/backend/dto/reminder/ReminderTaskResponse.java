@@ -2,6 +2,7 @@ package com.hackathon.backend.dto.reminder;
 
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.domain.ReminderStatus;
 import com.hackathon.backend.domain.ReminderTask;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -13,7 +14,7 @@ public record ReminderTaskResponse(
         @Schema(description = "알림 ID", example = "1") Long id,
         @Schema(description = "답례 대상 Person ID", example = "3") Long personId,
         @Schema(description = "답례 대상 이름", example = "김민수") String person,
-        @Schema(description = "관계", example = "친한 친구") String relation,
+        @Schema(description = "관계 카테고리", example = "친구") Relationship relation,
         @Schema(description = "이 알림을 만든 기록 ID", example = "1") Long giftRecordId,
         @Schema(description = "받았던 선물명 (무엇에 대한 답례인지)", example = "스타벅스 케이크") String gift,
         @Schema(description = "알림 예정일", example = "2026-09-14") LocalDate scheduledAt,

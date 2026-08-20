@@ -1,5 +1,6 @@
 package com.hackathon.backend.dto.gift;
 
+import com.hackathon.backend.domain.Relationship;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDate;
@@ -17,8 +18,9 @@ public record GiftRecordCreateRequest(
         @Schema(description = "보낸 사람 이름 (모달의 '보낸 사람' 입력값). personId가 없으면 이 이름으로 찾거나 새로 등록한다", example = "김민수")
         String personName,
 
-        @Schema(description = "관계 (모달의 '관계' 입력값). 사람을 새로 만들 때 함께 저장되고, 기존 사람이면 값을 갱신한다", example = "친한 친구")
-        String relation,
+        @Schema(description = "관계 카테고리 (모달의 '관계' 드롭다운 값). 사람을 새로 만들 때 함께 저장되고, 기존 사람이면 값을 갱신한다. "
+                + "선택지는 GET /api/relationships 참고", example = "친구")
+        Relationship relation,
 
         @Schema(description = "카테고리 ID. GET /api/categories 로 받은 id", example = "1") Long categoryId,
 

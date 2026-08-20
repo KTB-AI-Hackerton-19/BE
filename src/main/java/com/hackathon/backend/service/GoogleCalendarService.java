@@ -10,6 +10,7 @@ import com.hackathon.backend.client.GoogleOAuthClient.TokenResponse;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.GoogleCredential;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.domain.ReminderTask;
 import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.integration.GoogleAuthorizeUrlResponse;
@@ -244,7 +245,7 @@ public class GoogleCalendarService {
                         ? person.getGender().name().toLowerCase()
                         : null,
                 personName,
-                person != null ? person.getRelationship() : record.getExtractedRelationship(),
+                Relationship.labelOf(person != null ? person.getRelationship() : record.getExtractedRelationship()),
                 record.getReceivedDate(),
                 reminderDate,
                 record.getOccasion());

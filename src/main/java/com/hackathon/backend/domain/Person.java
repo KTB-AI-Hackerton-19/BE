@@ -33,8 +33,10 @@ public class Person {
     @Column(nullable = false)
     private String name;
 
-    @Column
-    private String relationship;
+    /** 자유 입력이 아니라 고정 카테고리. 선택 항목이라 미지정(null)을 허용한다. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private Relationship relationship;
 
     /** 선택 항목. 입력하지 않으면 null이다. */
     @Enumerated(EnumType.STRING)
@@ -47,7 +49,7 @@ public class Person {
     @Column
     private String memo;
 
-    public Person(User user, String name, String relationship, Gender gender, LocalDate birthday, String memo) {
+    public Person(User user, String name, Relationship relationship, Gender gender, LocalDate birthday, String memo) {
         this.user = user;
         this.name = name;
         this.relationship = relationship;
@@ -57,11 +59,11 @@ public class Person {
     }
 
     /** null로 들어온 필드는 기존 값을 유지한다(부분 수정 PATCH 시맨틱). */
-    public void update(String name, String relationship, Gender gender, LocalDate birthday, String memo) {
+    public void update(String name, Relationship relationship, Gender gender, LocalDate birthday, String memo) {
         if (name != null && !name.isBlank()) {
             this.name = name;
         }
-        if (relationship != null && !relationship.isBlank()) {
+        if (relationship != null) {
             this.relationship = relationship;
         }
         if (gender != null) {

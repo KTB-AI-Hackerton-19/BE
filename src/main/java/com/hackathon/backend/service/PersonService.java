@@ -2,6 +2,7 @@ package com.hackathon.backend.service;
 
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.person.PersonDeleteResponse;
@@ -191,7 +192,7 @@ public class PersonService {
      * (디자인의 '보낸 사람'이 자유 입력 필드라 사람 선택 UI가 따로 없기 때문)
      */
     @Transactional
-    public Person resolveOrCreate(User user, Long personId, String personName, String relation) {
+    public Person resolveOrCreate(User user, Long personId, String personName, Relationship relation) {
         Person person = resolveOrCreateNullable(user, personId, personName, relation);
         if (person == null) {
             throw new CustomException(ErrorCode.INVALID_INPUT, "보낸 사람(personId 또는 personName)을 입력해주세요.");
@@ -224,11 +225,11 @@ public class PersonService {
 
     /** 위와 같지만 아무 정보도 안 왔으면 null을 돌려준다(PATCH 부분 수정용). */
     @Transactional
-    public Person resolveOrCreateNullable(User user, Long personId, String personName, String relation) {
+    public Person resolveOrCreateNullable(User user, Long personId, String personName, Relationship relation) {
         if (personId != null) {
             Person person = personRepository.findByIdAndUser_Username(personId, user.getUsername())
                     .orElseThrow(() -> new CustomException(ErrorCode.PERSON_NOT_FOUND));
-            if (relation != null && !relation.isBlank()) {
+            if (relation != null) {
                 person.update(null, relation, null, null, null);
             }
             return person;
@@ -241,7 +242,7 @@ public class PersonService {
         Person person = existing != null
                 ? existing
                 : personRepository.save(new Person(user, name, relation, null, null, null));
-        if (relation != null && !relation.isBlank()) {
+        if (relation != null) {
             person.update(null, relation, null, null, null);
         }
         return person;
