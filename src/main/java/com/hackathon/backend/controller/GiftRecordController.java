@@ -111,8 +111,9 @@ public class GiftRecordController {
                     + "**사진에서 여러 명이 나오면 사람 수만큼 DRAFT가 만들어져 records에 전부 담긴다.** "
                     + "personCount가 사람 수, multiple이 2명 이상 여부다. 1명이면 records 원소가 1개이고, "
                     + "첫 번째 기록의 필드(person/date/occasion/gift/category/price ...)는 예전처럼 응답 최상위에도 그대로 있다.\n\n"
-                    + "AI 값이 경조사(결혼식·장례식 등)로 판정되면 그 사진의 사람 전원이 같은 경조사 유형(고정 7종 중 하나)으로 "
-                    + "묶이고, 그 유형이 응답의 eventCategory로 함께 내려간다.\n\n"
+                    + "**대분류(recordType)는 사람 수로 정해진다 — 2명 이상이면 전원 EVENT(경조사), 1명이면 GIFT(선물).** "
+                    + "EVENT일 때만 AI가 판정한 경조사 유형(고정 7종 중 하나)이 사람 전원에게 같이 붙고 응답의 eventCategory로 "
+                    + "함께 내려간다(유형까지 못 집어냈으면 null이라 사용자가 확인 폼에서 고른다). GIFT면 eventCategory는 항상 null이다.\n\n"
                     + "AI 서비스가 아직 없으면(AI_SERVICE_URL 미설정) 하드코딩된 더미 결과 1건을 반환하므로 지금도 전체 흐름을 테스트할 수 있다."
     )
     @PostMapping("/extract")

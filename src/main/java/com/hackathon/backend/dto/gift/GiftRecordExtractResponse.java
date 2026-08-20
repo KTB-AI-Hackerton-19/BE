@@ -40,7 +40,8 @@ public record GiftRecordExtractResponse(
                 + "PATCH /api/gift-records/{id}로 하나씩 확정하면 된다")
         List<GiftRecordResponse> records,
 
-        @Schema(description = "경조사로 판정됐을 때 이 기록들의 유형(고정 7종 중 하나). 경조사가 아니면 null이다")
+        @Schema(description = "EVENT(2명 이상)로 판정됐을 때 이 기록들의 유형(고정 7종 중 하나). "
+                + "GIFT거나 AI가 유형까지 못 집어냈으면 null이다")
         EventCategoryResponse eventCategory
 ) {
 

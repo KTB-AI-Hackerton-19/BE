@@ -44,6 +44,15 @@ public interface ReminderTaskRepository extends JpaRepository<ReminderTask, Long
 
     Optional<ReminderTask> findByGiftRecord_Id(Long giftRecordId);
 
+    /** 이미 구글 일정이 붙은 알림들. 같은 경조사를 두 번 올리지 않으려고 대조용으로 읽는다. */
+    @EntityGraph(attributePaths = {"giftRecord"})
+    List<ReminderTask> findByUser_UsernameAndGoogleEventIdIsNotNull(String username);
+
+    /** 구글 연동 직후 한 번에 올릴 대상 — 아직 일정이 없고, 오늘보다 뒤인 미발송 알림. */
+    @EntityGraph(attributePaths = {"person", "giftRecord"})
+    List<ReminderTask> findByUser_UsernameAndStatusAndGoogleEventIdIsNullAndScheduledAtGreaterThanOrderByScheduledAtAsc(
+            String username, ReminderStatus status, LocalDate after);
+
     /** 기록 삭제 시 딸린 알림 정리. 단건 삭제도 List.of(id)로 이걸 쓴다. */
     long deleteByGiftRecord_IdIn(List<Long> giftRecordIds);
 

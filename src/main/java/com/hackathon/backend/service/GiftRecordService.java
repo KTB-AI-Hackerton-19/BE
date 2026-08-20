@@ -148,8 +148,10 @@ public class GiftRecordService {
      * 방명록, 단체 메시지 캡처) AI가 사람 목록을
      * 돌려준다. 그 길이가 곧 사람 수이고, 사람 수만큼 DRAFT를 만들어 전부 응답에 실어 보낸다.</p>
      *
-     * <p>이때 AI 값이 <b>경조사</b>로 판정되면 그 사진의 사람 전원이 같은 경조사 유형(고정 7종 중 하나)으로
-     * 묶인다. 경조사는 더 이상 사용자별 카테고리 row가 아니라 코드에 고정된 값이라, 따로 만들거나 찾을 필요가 없다.</p>
+     * <p>대분류는 <b>사람 수</b>로 정한다 — <b>2명 이상이면 전원 EVENT</b>(봉투가 여러 개 찍힌 사진, 방명록처럼
+     * 경조사 자리에서 받은 것), <b>1명이면 GIFT</b>다. EVENT일 때만 AI가 준 경조사 유형(고정 7종 중 하나)을
+     * 붙이고, AI가 유형까지는 못 집어냈으면 비워둔 채 내려보내 사용자가 확인 폼에서 고른다.
+     * 경조사는 더 이상 사용자별 카테고리 row가 아니라 코드에 고정된 값이라, 따로 만들거나 찾을 필요가 없다.</p>
      */
     @Transactional
     public GiftRecordExtractResponse extract(GiftRecordExtractRequest request) {
@@ -159,8 +161,12 @@ public class GiftRecordService {
         String imageUrl = s3PresignService.createGetUrl(request.imageKey());
         awaitUpload();
         AiExtractionBatch batch = aiExtractionClient.extract(imageUrl);
-        EventCategory eventCategory = batch.eventCategory();
-        RecordType recordType = eventCategory != null ? RecordType.EVENT : RecordType.GIFT;
+
+        // 사람 수가 대분류를 가른다 — 한 장에 여러 명이면 봉투/방명록처럼 경조사 자리에서 받은 것이고,
+        // 한 명이면 선물로 본다. AI가 준 경조사 유형은 EVENT일 때만 쓰고, GIFT면 버린다
+        // (GiftRecord가 어차피 한쪽을 비우므로, 여기서 미리 맞춰 응답까지 일관되게 만든다).
+        RecordType recordType = batch.results().size() > 1 ? RecordType.EVENT : RecordType.GIFT;
+        EventCategory eventCategory = recordType == RecordType.EVENT ? batch.eventCategory() : null;
 
         List<GiftRecordResponse> records = new ArrayList<>();
         for (AiExtractionResult result : batch.results()) {
@@ -186,7 +192,8 @@ public class GiftRecordService {
             records.add(GiftRecordResponse.from(record, imageUrl, batch.fallback(), batch.fallbackReason()));
         }
 
-        log.info("AI 추출 완료 — {}명, 경조사: {}", records.size(), eventCategory != null ? eventCategory.getLabel() : "없음");
+        log.info("AI 추출 완료 — {}명, 대분류: {}, 경조사: {}", records.size(), recordType,
+                eventCategory != null ? eventCategory.getLabel() : "없음");
 
         return GiftRecordExtractResponse.of(
                 records, eventCategory != null ? EventCategoryResponse.from(eventCategory) : null);

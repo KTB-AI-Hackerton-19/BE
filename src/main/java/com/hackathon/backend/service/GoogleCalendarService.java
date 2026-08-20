@@ -10,7 +10,9 @@ import com.hackathon.backend.client.GoogleOAuthClient.TokenResponse;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.GoogleCredential;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.RecordType;
 import com.hackathon.backend.domain.Relationship;
+import com.hackathon.backend.domain.ReminderStatus;
 import com.hackathon.backend.domain.ReminderTask;
 import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.integration.GoogleAuthorizeUrlResponse;
@@ -25,14 +27,20 @@ import com.hackathon.backend.security.SecurityUtils;
 import com.hackathon.backend.support.MoneyFormatter;
 import java.time.LocalDate;
 import java.time.Period;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 구글 캘린더 연동. 크게 두 가지 일을 한다.
@@ -66,6 +74,7 @@ public class GoogleCalendarService {
     private final GoogleOAuthClient googleOAuthClient;
     private final AiCalendarClient aiCalendarClient;
     private final JwtProvider jwtProvider;
+    private final ObjectProvider<GoogleCalendarBackfiller> backfiller;
     private final String frontendRedirectUri;
 
     public GoogleCalendarService(GoogleCredentialRepository googleCredentialRepository,
@@ -74,6 +83,7 @@ public class GoogleCalendarService {
                                  GoogleOAuthClient googleOAuthClient,
                                  AiCalendarClient aiCalendarClient,
                                  JwtProvider jwtProvider,
+                                 ObjectProvider<GoogleCalendarBackfiller> backfiller,
                                  @Value("${google.oauth.frontend-redirect-uri}") String frontendRedirectUri) {
         this.googleCredentialRepository = googleCredentialRepository;
         this.reminderTaskRepository = reminderTaskRepository;
@@ -81,6 +91,7 @@ public class GoogleCalendarService {
         this.googleOAuthClient = googleOAuthClient;
         this.aiCalendarClient = aiCalendarClient;
         this.jwtProvider = jwtProvider;
+        this.backfiller = backfiller;
         this.frontendRedirectUri = frontendRedirectUri;
     }
 
@@ -143,11 +154,27 @@ public class GoogleCalendarService {
                 }
             }
             log.info("구글 캘린더 연동 완료. username={} googleEmail={}", username, email);
+            // 이미 잡혀 있던 답례일들을 뒤에서 올린다. 커밋 뒤에 시작해야 백그라운드 스레드가
+            // 방금 저장한 연동 정보를 볼 수 있고, 화면은 기다리지 않고 바로 돌아간다.
+            backfillAfterCommit(username);
             return frontendRedirectUri + "?google=connected";
         } catch (CustomException e) {
             log.warn("구글 연동 실패. username={} reason={}", username, e.getMessage());
             return frontendRedirectUri + "?google=failed";
         }
+    }
+
+    private void backfillAfterCommit(String username) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            backfiller.getObject().backfill(username);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                backfiller.getObject().backfill(username);
+            }
+        });
     }
 
     @Transactional(readOnly = true)
@@ -187,20 +214,124 @@ public class GoogleCalendarService {
      * rollback-only로 오염시키지 않게 분리한다.</p>
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void syncEvent(User user, GiftRecord record, ReminderTask reminder) {
+    public boolean syncEvent(User user, GiftRecord record, ReminderTask reminder) {
         String accessToken = accessTokenOrNull(user);
         if (accessToken == null) {
-            return;
+            return false;
         }
+
+        // 경조사는 하객 수만큼 일정을 만들지 않는다. 같은 행사의 같은 답례일자에 이미 만들어둔
+        // 일정이 있으면 그것을 같이 가리키게만 한다 (하객 100명 = 캘린더 일정 100개를 막는다).
+        ReminderTask sameEvent = findEventGroupTask(user, record, reminder);
+        if (sameEvent != null) {
+            reminder.linkGoogleEvent(sameEvent.getGoogleEventId(), sameEvent.getGoogleHtmlLink());
+            return false;
+        }
+
         CalendarRegistration result = aiCalendarClient.confirm(
                 buildConfirmRequest(record, reminder, accessToken));
 
         if (!result.registered()) {
             log.warn("구글 캘린더 등록 실패. recordId={} reason={}", record.getId(), result.error());
-            return;
+            return false;
         }
         reminder.linkGoogleEvent(result.eventId(), result.htmlLink());
         log.info("구글 캘린더 등록 완료. recordId={} eventId={}", record.getId(), result.eventId());
+        return true;
+    }
+
+    /** 연동 직후 캘린더에 올릴 대상 — 아직 일정이 없고 오늘보다 뒤인 미발송 알림. 등록은 배치로 나눠서 한다. */
+    @Transactional(readOnly = true)
+    public List<Long> upcomingBackfillTargets(String username) {
+        return reminderTaskRepository
+                .findByUser_UsernameAndStatusAndGoogleEventIdIsNullAndScheduledAtGreaterThanOrderByScheduledAtAsc(
+                        username, ReminderStatus.PENDING, LocalDate.now())
+                .stream()
+                .map(ReminderTask::getId)
+                .toList();
+    }
+
+    /**
+     * 대상을 앞에서부터 훑어 구글 일정을 최대 {@code maxEvents}개까지 만든다.
+     *
+     * <p>경조사는 여기서도 행사 하나당 일정 하나다 — 같은 행사의 두 번째 하객부터는 구글을 부르지 않으므로
+     * 개수 제한에도 걸리지 않는다. 같은 트랜잭션 안에서 방금 붙인 eventId는 아직 커밋 전이라
+     * 이번 배치에서 만든 일정은 따로 들고 다니며 대조한다.</p>
+     *
+     * @return 이번 배치에서 처리한 대상 개수(호출한 쪽이 다음 배치의 시작점으로 쓴다)
+     */
+    @Transactional
+    public int backfillBatch(String username, List<Long> taskIds, int maxEvents) {
+        User user = userRepository.findByUsername(username).orElse(null);
+        if (user == null || taskIds.isEmpty() || accessTokenOrNull(user) == null) {
+            return 0;
+        }
+        Map<Long, ReminderTask> byId = reminderTaskRepository.findAllById(taskIds).stream()
+                .collect(Collectors.toMap(ReminderTask::getId, task -> task));
+
+        // linked: 이번 배치에서 일정이 붙은 것들(다음 하객을 묶을 때 대조용).
+        // registered: 그중 실제로 구글을 부른 횟수 — 제한은 호출 수 기준이라 이쪽을 센다.
+        List<ReminderTask> linked = new ArrayList<>();
+        int registered = 0;
+        int handled = 0;
+        for (Long id : taskIds) {
+            if (registered >= maxEvents) {
+                break;
+            }
+            handled++;
+            ReminderTask task = byId.get(id);
+            if (task == null || task.getGiftRecord() == null || task.getGoogleEventId() != null) {
+                continue;
+            }
+            GiftRecord record = task.getGiftRecord();
+            ReminderTask sameEvent = groupable(record)
+                    ? linked.stream().filter(done -> isSameEventAs(done, record, task)).findFirst().orElse(null)
+                    : null;
+            if (sameEvent != null) {
+                task.linkGoogleEvent(sameEvent.getGoogleEventId(), sameEvent.getGoogleHtmlLink());
+                linked.add(task);
+                continue;
+            }
+            if (syncEvent(user, record, task)) {
+                registered++;
+            }
+            if (task.getGoogleEventId() != null) {
+                linked.add(task);
+            }
+        }
+        log.info("구글 캘린더 일괄 등록 — 대상 {}건 처리, 새 일정 {}개. username={}", handled, registered, username);
+        return handled;
+    }
+
+    /**
+     * 같은 행사(경조사 유형 + 행사일)에 같은 답례일자로 이미 만들어둔 구글 일정. 없으면 null.
+     * 선물(GIFT)은 사람마다 따로 챙기는 것이라 묶지 않는다.
+     */
+    private ReminderTask findEventGroupTask(User user, GiftRecord record, ReminderTask reminder) {
+        if (!groupable(record)) {
+            return null;
+        }
+        return reminderTaskRepository.findByUser_UsernameAndGoogleEventIdIsNotNull(user.getUsername()).stream()
+                .filter(task -> !task.getId().equals(reminder.getId()))
+                .filter(task -> isSameEventAs(task, record, reminder))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private boolean groupable(GiftRecord record) {
+        return record.getRecordType() == RecordType.EVENT && record.getEventCategory() != null;
+    }
+
+    private boolean isSameEventAs(ReminderTask task, GiftRecord record, ReminderTask reminder) {
+        return reminder.getScheduledAt().equals(task.getScheduledAt())
+                && sameEvent(task.getGiftRecord(), record);
+    }
+
+    private boolean sameEvent(GiftRecord other, GiftRecord record) {
+        return other != null
+                && other.getRecordType() == RecordType.EVENT
+                && other.getEventCategory() == record.getEventCategory()
+                && java.util.Objects.equals(other.getEventDate(), record.getEventDate());
     }
 
     /**
@@ -278,6 +409,10 @@ public class GoogleCalendarService {
     }
 
     private String buildTitle(GiftRecord record, String personName) {
+        if (record.getRecordType() == RecordType.EVENT && record.getEventCategory() != null) {
+            // 일정 하나가 하객 전원을 대표하므로 개인 이름을 제목에 쓰지 않는다.
+            return record.getEventCategory().getLabel() + " 답례 준비";
+        }
         if (personName != null && !personName.isBlank()) {
             return personName + "님 답례 준비";
         }
@@ -287,6 +422,12 @@ public class GoogleCalendarService {
     }
 
     private String buildDescription(GiftRecord record, String personName) {
+        if (record.getRecordType() == RecordType.EVENT && record.getEventCategory() != null) {
+            String label = record.getEventCategory().getLabel();
+            return label + "에서 받은 마음들에 대한 답례를 준비할 시간입니다."
+                    + (record.getEventDate() != null ? "\n행사일: " + record.getEventDate() : "")
+                    + "\n\n마음장부에서 명단과 금액을 확인하세요.";
+        }
         StringBuilder sb = new StringBuilder();
         String who = personName == null || personName.isBlank() ? "누군가" : personName + "님";
         sb.append(who).append("에게 받은 ");

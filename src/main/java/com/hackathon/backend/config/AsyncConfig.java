@@ -19,6 +19,23 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 public class AsyncConfig {
 
     public static final String RECOMMENDATION_EXECUTOR = "recommendationExecutor";
+    public static final String CALENDAR_BACKFILL_EXECUTOR = "calendarBackfillExecutor";
+
+    /**
+     * 구글 연동 직후의 일정 일괄 등록용. 배치 사이에 스레드가 그대로 잠들기 때문에
+     * 추천 미리받기 풀과 섞으면 그동안 추천이 밀린다. 한 번에 하나만 돌면 되므로 스레드도 하나다.
+     */
+    @Bean(CALENDAR_BACKFILL_EXECUTOR)
+    public Executor calendarBackfillExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(5);
+        executor.setThreadNamePrefix("calendar-backfill-");
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
+        executor.initialize();
+        return executor;
+    }
 
     @Bean(RECOMMENDATION_EXECUTOR)
     public Executor recommendationExecutor() {
