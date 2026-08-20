@@ -34,18 +34,21 @@ public class PersonService {
     private final GiftRecordRepository giftRecordRepository;
     private final ReminderTaskRepository reminderTaskRepository;
     private final RecommendedGiftRepository recommendedGiftRepository;
+    private final RecommendationCache recommendationCache;
     private final RelationshipService relationshipService;
 
     public PersonService(PersonRepository personRepository, UserRepository userRepository,
                          GiftRecordRepository giftRecordRepository,
                          ReminderTaskRepository reminderTaskRepository,
                          RecommendedGiftRepository recommendedGiftRepository,
+                         RecommendationCache recommendationCache,
                          RelationshipService relationshipService) {
         this.personRepository = personRepository;
         this.userRepository = userRepository;
         this.giftRecordRepository = giftRecordRepository;
         this.reminderTaskRepository = reminderTaskRepository;
         this.recommendedGiftRepository = recommendedGiftRepository;
+        this.recommendationCache = recommendationCache;
         this.relationshipService = relationshipService;
     }
 
@@ -78,6 +81,8 @@ public class PersonService {
 
         person.update(request.name(), relationshipService.normalize(request.relation()), request.gender(),
                 request.birthday(), request.memo());
+        // 나이·성별·관계·취향(memo)은 그대로 AI 추천 요청에 실려 간다. 바뀌면 저장된 추천은 옛 조건으로 만든 것이다.
+        recommendationCache.evict(username, person.getId());
         return buildSummary(username, person);
     }
 

@@ -64,6 +64,7 @@ public class GiftRecordService {
 
     private final GiftRecordRepository giftRecordRepository;
     private final ReminderTaskRepository reminderTaskRepository;
+    private final RecommendationCache recommendationCache;
     private final GoogleCalendarService googleCalendarService;
     private final UserRepository userRepository;
     private final PersonService personService;
@@ -85,9 +86,11 @@ public class GiftRecordService {
                              S3PresignService s3PresignService,
                              AiExtractionClient aiExtractionClient,
                              GoogleCalendarService googleCalendarService,
+                             RecommendationCache recommendationCache,
                              @Value("${ai.service.pre-request-delay-ms:15000}") long preRequestDelayMs) {
         this.giftRecordRepository = giftRecordRepository;
         this.reminderTaskRepository = reminderTaskRepository;
+        this.recommendationCache = recommendationCache;
         this.userRepository = userRepository;
         this.personService = personService;
         this.categoryService = categoryService;
@@ -133,6 +136,8 @@ public class GiftRecordService {
         giftRecordRepository.save(record);
 
         syncReminder(user, record);
+        // 새 마음이 들어오면 그 사람 추천의 근거가 달라진다. 낡은 추천이 그대로 나가지 않게 버린다.
+        recommendationCache.evict(username, sender.person() == null ? null : sender.person().getId());
         return toResponse(record);
     }
 
@@ -215,6 +220,9 @@ public class GiftRecordService {
 
         validateDates(request.date(), request.reminderDate());
 
+        // 사람이 바뀌는 수정이면 옮겨간 쪽과 떠나온 쪽 모두 근거가 달라진다. 바꾸기 전에 잡아둔다.
+        Long previousPersonId = record.getPerson() == null ? null : record.getPerson().getId();
+
         Sender sender = resolveSender(user, request.personId(), request.personName(), request.guestName(),
                 request.registerPerson(), request.relation());
 
@@ -241,6 +249,8 @@ public class GiftRecordService {
         }
 
         syncReminder(user, record);
+        recommendationCache.evict(username, java.util.Arrays.asList(
+                previousPersonId, sender.person() == null ? null : sender.person().getId()));
         return toResponse(record);
     }
 
@@ -371,6 +381,9 @@ public class GiftRecordService {
         log.info("사람 연결 — '{}' → personId {} ({}), 기록 {}건", name, person.getId(),
                 created ? "신규" : "기존", targets.size());
 
+        // 이름만 있던 기록이 사람에게 붙으면 그 사람 기준 추천의 근거가 생긴다.
+        recommendationCache.evict(username, person.getId());
+
         return new GiftRecordPersonLinkResponse(person.getId(), person.getName(), created, targets.size(),
                 targets.stream().map(t -> toResponse(t, false)).toList());
     }
@@ -391,7 +404,7 @@ public class GiftRecordService {
         String username = SecurityUtils.getCurrentUsername();
         GiftRecord record = giftRecordRepository.findByIdAndUser_Username(id, username)
                 .orElseThrow(() -> new CustomException(ErrorCode.GIFT_RECORD_NOT_FOUND));
-        deleteRecords(List.of(record));
+        deleteRecords(username, List.of(record));
     }
 
     /**
@@ -412,7 +425,7 @@ public class GiftRecordService {
         if (unique.isEmpty()) {
             throw new CustomException(ErrorCode.INVALID_INPUT, "삭제할 기록의 id를 하나 이상 보내주세요.");
         }
-        return deleteRecords(giftRecordRepository.findByIdInAndUser_Username(unique, username));
+        return deleteRecords(username, giftRecordRepository.findByIdInAndUser_Username(unique, username));
     }
 
     /**
@@ -424,20 +437,28 @@ public class GiftRecordService {
     @Transactional
     public GiftRecordDeleteResponse deleteAllOfUser() {
         String username = SecurityUtils.getCurrentUsername();
-        return deleteRecords(giftRecordRepository.findByUser_UsernameOrderByReceivedDateDescIdDesc(username));
+        return deleteRecords(username, giftRecordRepository.findByUser_UsernameOrderByReceivedDateDescIdDesc(username));
     }
 
     /**
      * 삭제 순서가 중요하다. 기록을 참조하는 답례 알림을 먼저 비워야 FK 제약에 걸리지 않는다.
      * 사람(Person)은 건드리지 않는다 — 기록이 없어졌다고 상대방을 목록에서 지울 이유가 없다.
      */
-    private GiftRecordDeleteResponse deleteRecords(List<GiftRecord> records) {
+    private GiftRecordDeleteResponse deleteRecords(String username, List<GiftRecord> records) {
         if (records.isEmpty()) {
             return GiftRecordDeleteResponse.empty();
         }
+        // 지우기 전에 잡아둔다 — 삭제 후에는 어느 사람 추천을 버려야 할지 알 수 없다.
+        List<Long> affectedPersonIds = records.stream()
+                .map(record -> record.getPerson() == null ? null : record.getPerson().getId())
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
         long reminders = reminderTaskRepository.deleteByGiftRecord_IdIn(
                 records.stream().map(GiftRecord::getId).toList());
         giftRecordRepository.deleteAll(records);
+        recommendationCache.evict(username, affectedPersonIds);
 
         log.info("마음 기록 삭제 — 기록 {}건, 답례 알림 {}건", records.size(), reminders);
         return new GiftRecordDeleteResponse(records.size(), (int) reminders);
