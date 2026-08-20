@@ -5,6 +5,7 @@ import com.hackathon.backend.dto.ApiResponse;
 import com.hackathon.backend.dto.PageResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
+import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.gift.GiftRecordThankedRequest;
 import com.hackathon.backend.dto.gift.GiftRecordUpdateRequest;
@@ -92,14 +93,19 @@ public class GiftRecordController {
     }
 
     @Operation(
-            summary = "AI 이미지 분석 (DRAFT 생성)",
+            summary = "AI 이미지 분석 (DRAFT 생성, 여러 명 지원)",
             description = "기록 모달에서 사진을 올린 뒤 호출한다. presigned URL로 S3에 업로드된 imageKey를 받아 "
-                    + "백엔드가 조회용 presigned GET URL을 만들어 AI 서비스에 imageUrl로 전달하고, 결과를 status=DRAFT로 저장한다. "
-                    + "응답의 person/relation/date/occasion/gift/category/price를 확인 폼 초기값으로 그대로 채우면 된다. "
-                    + "AI 서비스가 아직 없으면(AI_SERVICE_URL 미설정) 하드코딩된 더미 결과를 반환하므로 지금도 전체 흐름을 테스트할 수 있다."
+                    + "백엔드가 조회용 presigned GET URL을 만들어 AI 서비스에 imageUrl로 전달하고, 결과를 status=DRAFT로 저장한다.\n\n"
+                    + "**사진에서 여러 명이 나오면 사람 수만큼 DRAFT가 만들어져 records에 전부 담긴다.** "
+                    + "personCount가 사람 수, multiple이 2명 이상 여부다. 1명이면 records 원소가 1개이고, "
+                    + "첫 번째 기록의 필드(person/date/occasion/gift/category/price ...)는 예전처럼 응답 최상위에도 그대로 있다.\n\n"
+                    + "AI 값이 경조사(결혼식·장례식 등)로 판정되면 그 사진의 사람 전원이 경조사 탭의 같은 이벤트로 묶이고, "
+                    + "그 이벤트가 eventCategory로 함께 내려간다 — 같은 이름의 이벤트가 이미 있으면 새로 만들지 않고 재사용하며 "
+                    + "(eventCategoryCreated=false), 새로 만들었으면 true다.\n\n"
+                    + "AI 서비스가 아직 없으면(AI_SERVICE_URL 미설정) 하드코딩된 더미 결과 1건을 반환하므로 지금도 전체 흐름을 테스트할 수 있다."
     )
     @PostMapping("/extract")
-    public ApiResponse<GiftRecordResponse> extract(@Valid @RequestBody GiftRecordExtractRequest request) {
+    public ApiResponse<GiftRecordExtractResponse> extract(@Valid @RequestBody GiftRecordExtractRequest request) {
         return ApiResponse.success(giftRecordService.extract(request));
     }
 

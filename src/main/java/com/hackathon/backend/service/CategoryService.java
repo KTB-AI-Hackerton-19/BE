@@ -213,6 +213,54 @@ public class CategoryService {
         return resolved != null ? resolved : fallbackCategory(SecurityUtils.getCurrentUsername());
     }
 
+    /**
+     * 경조사 카테고리(= 경조사 탭의 이벤트 하나)를 이름으로 찾아 쓰고, <b>없을 때만</b> 새로 만든다.
+     *
+     * <p>AI가 사진에서 "결혼식"을 읽어냈을 때 매번 새 이벤트를 만들면 같은 결혼식이 여러 개로 쪼개진다.
+     * 그래서 같은 이름의 경조사 카테고리가 이미 있으면 그것을 그대로 쓴다 — 두 번째 사진부터는
+     * 아무것도 만들지 않고 첫 번째가 만든 이벤트에 기록만 쌓인다.</p>
+     *
+     * <p>행사일은 <b>비어 있을 때만</b> 채운다. 사용자가 직접 입력해둔 날짜를 AI 추정치로 덮으면 안 된다.</p>
+     */
+    @Transactional
+    public EventCategory resolveOrCreateEvent(User user, String rawName, GiftKind kind, LocalDate eventDate) {
+        String username = user.getUsername();
+        GiftKind eventKind = (kind == null || !kind.isEvent()) ? GiftKind.CELEBRATION : kind;
+        String name = blankToDefault(rawName, eventKind.getLabel());
+
+        Category existing = categoryRepository.findByUser_UsernameAndName(username, name).orElse(null);
+        if (existing != null && existing.getKind() != null && existing.getKind().isEvent()) {
+            if (existing.getEventDate() == null && eventDate != null) {
+                existing.update(null, null, null, null, null, null, eventDate);
+            }
+            return new EventCategory(existing, false);
+        }
+        if (existing != null) {
+            // 같은 이름을 선물 카테고리가 이미 쓰고 있다. (user, name) 유니크 제약에 걸리므로 라벨을 붙여 구분한다.
+            name = "%s(%s)".formatted(name, eventKind.getLabel());
+            Category taken = categoryRepository.findByUser_UsernameAndName(username, name).orElse(null);
+            if (taken != null) {
+                return new EventCategory(taken, false);
+            }
+        }
+        Category created = new Category(user, name, eventEmoji(eventKind), eventColor(eventKind),
+                nextDisplayOrder(username), true, eventKind, eventDate);
+        categoryRepository.save(created);
+        return new EventCategory(created, true);
+    }
+
+    /** @param created true면 이번 요청에서 새로 만들어진 이벤트다(프론트에서 "새 경조사가 생겼어요" 안내에 쓴다). */
+    public record EventCategory(Category category, boolean created) {
+    }
+
+    private String eventEmoji(GiftKind kind) {
+        return kind == GiftKind.CONDOLENCE ? "🕊️" : "🎊";
+    }
+
+    private String eventColor(GiftKind kind) {
+        return kind == GiftKind.CONDOLENCE ? "blue" : "gold";
+    }
+
     private Category findOwned(Long id, String username) {
         return categoryRepository.findByIdAndUser_Username(id, username)
                 .orElseThrow(() -> new CustomException(ErrorCode.CATEGORY_NOT_FOUND));

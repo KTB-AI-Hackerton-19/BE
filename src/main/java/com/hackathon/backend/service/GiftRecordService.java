@@ -1,17 +1,22 @@
 package com.hackathon.backend.service;
 
+import com.hackathon.backend.client.AiExtractionBatch;
 import com.hackathon.backend.client.AiExtractionClient;
 import com.hackathon.backend.client.AiExtractionResult;
 import com.hackathon.backend.domain.Category;
+import com.hackathon.backend.domain.Gender;
 import com.hackathon.backend.domain.GiftKind;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.domain.ReminderTask;
 import com.hackathon.backend.domain.User;
 import com.hackathon.backend.dto.PageResponse;
+import com.hackathon.backend.dto.category.CategoryResponse;
 import com.hackathon.backend.dto.gift.GiftRecordCreateRequest;
 import com.hackathon.backend.dto.gift.GiftRecordExtractRequest;
+import com.hackathon.backend.dto.gift.GiftRecordExtractResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.gift.GiftRecordUpdateRequest;
 import com.hackathon.backend.exception.CustomException;
@@ -22,6 +27,7 @@ import com.hackathon.backend.repository.UserRepository;
 import com.hackathon.backend.security.SecurityUtils;
 import com.hackathon.backend.support.MoneyFormatter;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -103,32 +109,61 @@ public class GiftRecordService {
 
     /**
      * 업로드된 이미지의 imageKey로 조회용 presigned GET URL을 만들어 AI 서비스에 넘기고, 결과를 DRAFT로 저장한다.
-     * 프론트는 이 응답을 확인/수정 폼의 초기값으로 그대로 쓰면 된다.
+     *
+     * <p><b>사진 한 장에 여러 명이 있으면</b>(축의금 봉투 여러 장, 방명록, 단체 메시지 캡처) AI가 사람 목록을
+     * 돌려준다. 그 길이가 곧 사람 수이고, 사람 수만큼 DRAFT를 만들어 전부 응답에 실어 보낸다.</p>
+     *
+     * <p>이때 AI 값이 <b>경조사</b>로 판정되면 경조사 탭의 이벤트 카테고리를 찾아(같은 이름이 이미 있으면
+     * 그대로 쓰고, 없으면 그 자리에서 만들어) 그 사진의 사람 전원을 같은 이벤트에 묶는다. 한 결혼식에서 받은
+     * 축의금이 사람마다 다른 카테고리로 흩어지지 않게 하려는 것이다.</p>
      */
     @Transactional
-    public GiftRecordResponse extract(GiftRecordExtractRequest request) {
+    public GiftRecordExtractResponse extract(GiftRecordExtractRequest request) {
         String username = SecurityUtils.getCurrentUsername();
         User user = getUser(username);
 
         String imageUrl = s3PresignService.createGetUrl(request.imageKey());
         awaitUpload();
-        AiExtractionResult result = aiExtractionClient.extract(imageUrl);
-        Category category = categoryService.resolveOrFallback(null, result.categoryName());
+        AiExtractionBatch batch = aiExtractionClient.extract(imageUrl);
 
-        // AI가 뽑은 이름이 등록된 사람과 정확히 일치할 때만 연결한다. 없으면 null로 두고 사용자가 폼에서 고른다.
-        Person person = personService.findByExactName(user, result.senderName());
+        // 경조사면 이 사진의 전원이 들어갈 이벤트를 먼저 확보한다. 경조사가 아니면 null(= 사람별 카테고리 분류).
+        CategoryService.EventCategory event = batch.isEvent()
+                ? categoryService.resolveOrCreateEvent(user, batch.eventName(), batch.eventKind(), batch.eventDate())
+                : null;
 
-        LocalDate receivedDate = result.receivedDate() != null ? result.receivedDate() : LocalDate.now();
+        List<GiftRecordResponse> records = new ArrayList<>();
+        for (AiExtractionResult result : batch.results()) {
+            Category category = event != null
+                    ? event.category()
+                    : categoryService.resolveOrFallback(null, result.categoryName());
 
-        GiftRecord record = GiftRecord.createDraft(
-                user, person, request.imageKey(), result.senderName(), result.relationship(), category,
-                result.occasion(), result.giftName(), result.amount(),
-                receivedDate, receivedDate.plusDays(DEFAULT_REMINDER_OFFSET_DAYS));
-        giftRecordRepository.save(record);
+            // AI가 뽑은 이름이 등록된 사람과 정확히 일치할 때만 연결한다. 없으면 null로 두고 사용자가 폼에서 고른다.
+            Person person = personService.findByExactName(user, result.senderName());
 
-        // AI가 아니라 더미로 채워졌으면 응답에 그대로 실어 보낸다(로그만으로는 프론트가 알 수 없다).
-        String draftImageUrl = s3PresignService.createGetUrl(record.getImageKey());
-        return GiftRecordResponse.from(record, draftImageUrl, result.fallback(), result.fallbackReason());
+            LocalDate receivedDate = result.receivedDate() != null ? result.receivedDate() : LocalDate.now();
+            String occasion = result.occasion() != null ? result.occasion() : batch.eventName();
+
+            GiftRecord record = GiftRecord.createDraft(
+                    user, person, request.imageKey(), result.senderName(),
+                    Relationship.from(result.relationship()), result.age(), Gender.from(result.gender()), category,
+                    occasion, result.giftName(), result.amount(),
+                    receivedDate, receivedDate.plusDays(DEFAULT_REMINDER_OFFSET_DAYS));
+            giftRecordRepository.save(record);
+
+            // AI가 아니라 더미로 채워졌으면 응답에 그대로 실어 보낸다(로그만으로는 프론트가 알 수 없다).
+            // imageUrl은 사람마다 같은 이미지라 위에서 만든 것을 그대로 쓴다(사람 수만큼 서명하지 않는다).
+            records.add(GiftRecordResponse.from(record, imageUrl, batch.fallback(), batch.fallbackReason()));
+        }
+
+        log.info("AI 추출 완료 — {}명, 이벤트: {}", records.size(),
+                event != null ? event.category().getName() + (event.created() ? " (신규)" : " (기존)") : "없음");
+
+        return GiftRecordExtractResponse.of(
+                records,
+                event != null ? CategoryResponse.from(event.category(),
+                        giftRecordRepository.countByUser_UsernameAndCategory_Id(username, event.category().getId()))
+                        : null,
+                event != null && event.created());
     }
 
     /**

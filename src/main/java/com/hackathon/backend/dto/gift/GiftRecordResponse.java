@@ -3,8 +3,10 @@ package com.hackathon.backend.dto.gift;
 import com.hackathon.backend.domain.Category;
 import com.hackathon.backend.domain.GiftRecord;
 import com.hackathon.backend.domain.GiftKind;
+import com.hackathon.backend.domain.Gender;
 import com.hackathon.backend.domain.GiftRecordStatus;
 import com.hackathon.backend.domain.Person;
+import com.hackathon.backend.domain.Relationship;
 import com.hackathon.backend.support.MoneyFormatter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
@@ -17,7 +19,7 @@ public record GiftRecordResponse(
 
         @Schema(description = "보낸 사람 Person ID (DRAFT 상태면 null)", example = "3") Long personId,
         @Schema(description = "보낸 사람 이름 — 화면의 person", example = "김민수") String person,
-        @Schema(description = "관계 — 화면의 relation", example = "친한 친구") String relation,
+        @Schema(description = "관계 카테고리 — 화면의 relation", example = "친구") Relationship relation,
 
         @Schema(description = "받은 날짜 — 화면의 date", example = "2026-08-18") LocalDate date,
         @Schema(description = "답례 알림일 — 화면의 reminderDate (미설정이면 null)", example = "2026-09-14") LocalDate reminderDate,
@@ -36,7 +38,9 @@ public record GiftRecordResponse(
         @Schema(description = "감사/답례 완료 여부 — true면 '감사 완료', false면 '확인 필요' 뱃지", example = "true") boolean thanked,
 
         @Schema(description = "AI가 이미지에서 추출한 보낸 사람 이름 (확정 전 확인 폼 프리필용)", example = "김민수") String extractedSenderName,
-        @Schema(description = "AI가 추측한 관계 (확정 전 확인 폼 프리필용)", example = "친한 친구") String extractedRelationship,
+        @Schema(description = "AI가 추측한 관계 카테고리 (확정 전 확인 폼 프리필용)", example = "친구") Relationship extractedRelationship,
+        @Schema(description = "AI가 추정한 보낸 사람 나이 (새 사람 등록 폼 프리필용, 없으면 null)", example = "32") Integer extractedAge,
+        @Schema(description = "AI가 추정한 보낸 사람 성별 (새 사람 등록 폼 프리필용, 없으면 null)", example = "남성") Gender extractedGender,
         @Schema(description = "원본 이미지 조회용 presigned GET URL (매 응답마다 새로 발급, 15분 만료)") String imageUrl,
 
         @Schema(description = "분류 — 카테고리가 속한 탭에서 파생. GIFT(선물) / CELEBRATION(경사) / CONDOLENCE(조사)") GiftKind kind,
@@ -80,6 +84,8 @@ public record GiftRecordResponse(
                 record.isThanked(),
                 record.getExtractedSenderName(),
                 record.getExtractedRelationship(),
+                record.getExtractedAge(),
+                record.getExtractedGender(),
                 imageUrl,
                 category != null ? category.getKind() : null,
                 category != null && category.getKind() != null ? category.getKind().getLabel() : null,

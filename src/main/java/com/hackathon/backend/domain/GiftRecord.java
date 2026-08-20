@@ -62,9 +62,24 @@ public class GiftRecord {
     @Column
     private String extractedSenderName;
 
-    /** AI가 추측한 관계 (확정 전 참고용) */
+    /** AI가 추측한 관계 (확정 전 참고용). AI는 자유 텍스트를 주지만 저장할 땐 카테고리로 맞춰 넣는다 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private Relationship extractedRelationship;
+
+    /**
+     * AI가 추정한 보낸 사람의 나이·성별 (확정 전 참고용).
+     *
+     * <p>사람(Person)이 아니라 기록에 둔 이유는, DRAFT 시점에는 아직 사람이 정해지지 않았기 때문이다
+     * (이름이 정확히 일치할 때만 연결된다). 사용자가 확인 폼에서 "새 사람 등록"을 고를 때
+     * 이 값을 프리필로 쓰라고 응답에 함께 내려보낸다. AI 추정치를 기존 사람 정보에 자동으로 덮어쓰지는 않는다.</p>
+     */
     @Column
-    private String extractedRelationship;
+    private Integer extractedAge;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private Gender extractedGender;
 
     /** 받은 이유 - 자유 텍스트 (예: 내 생일, 프로젝트 축하, 결혼식) */
     @Column(length = 200)
@@ -116,7 +131,8 @@ public class GiftRecord {
     }
 
     public static GiftRecord createDraft(User user, Person person, String imageKey, String extractedSenderName,
-                                         String extractedRelationship, Category category, String occasion,
+                                         Relationship extractedRelationship, Integer extractedAge,
+                                         Gender extractedGender, Category category, String occasion,
                                          String giftName, Integer amount, LocalDate receivedDate,
                                          LocalDate reminderDate) {
         GiftRecord record = new GiftRecord();
@@ -125,6 +141,8 @@ public class GiftRecord {
         record.imageKey = imageKey;
         record.extractedSenderName = extractedSenderName;
         record.extractedRelationship = extractedRelationship;
+        record.extractedAge = extractedAge;
+        record.extractedGender = extractedGender;
         record.category = category;
         record.occasion = occasion;
         record.giftName = giftName;
