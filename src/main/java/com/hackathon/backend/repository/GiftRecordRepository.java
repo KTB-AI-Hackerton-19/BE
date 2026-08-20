@@ -19,23 +19,30 @@ public interface GiftRecordRepository extends JpaRepository<GiftRecord, Long> {
     /**
      * 목록 화면용 통합 검색. 모든 조건은 null이면 무시된다(동적 필터).
      * person/category를 fetch join해 목록 렌더링 시 N+1을 막는다.
+     *
+     * <p><b>person/category는 반드시 명시적 left join으로 걸어야 한다.</b> where에서 {@code r.person.id}처럼
+     * 경로로 바로 쓰면 JPQL이 암시적 INNER JOIN을 만들어, <b>보낸 사람이 아직 없는 기록(AI 추출 직후 DRAFT)이
+     * 필터와 무관하게 목록에서 통째로 빠진다.</b> 사진 한 장에서 여러 명을 뽑으면 대부분 이 상태라,
+     * "카테고리 카드는 6건인데 목록엔 2건만 보인다" 같은 불일치로 나타난다.</p>
      */
     @EntityGraph(attributePaths = {"person", "category"})
     @Query("""
             select r from GiftRecord r
+            left join r.person p
+            left join r.category c
             where r.user.username = :username
               and (:status is null or r.status = :status)
-              and (:categoryId is null or r.category.id = :categoryId)
-              and (:personId is null or r.person.id = :personId)
+              and (:categoryId is null or c.id = :categoryId)
+              and (:personId is null or p.id = :personId)
               and (:thanked is null or r.thanked = :thanked)
-              and (:allKinds = true or r.category.kind in :kinds)
+              and (:allKinds = true or c.kind in :kinds)
               and (:startDate is null or r.receivedDate >= :startDate)
               and (:endDate is null or r.receivedDate <= :endDate)
-              and (:personName is null or lower(r.person.name) like lower(concat('%', :personName, '%')))
+              and (:personName is null or lower(p.name) like lower(concat('%', :personName, '%')))
               and (:keyword is null
                    or lower(r.giftName) like lower(concat('%', :keyword, '%'))
                    or lower(r.occasion) like lower(concat('%', :keyword, '%'))
-                   or lower(r.person.name) like lower(concat('%', :keyword, '%')))
+                   or lower(p.name) like lower(concat('%', :keyword, '%')))
             """)
     Page<GiftRecord> search(@Param("username") String username,
                             @Param("status") GiftRecordStatus status,
