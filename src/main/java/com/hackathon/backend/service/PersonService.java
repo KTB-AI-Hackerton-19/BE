@@ -53,7 +53,14 @@ public class PersonService {
     public PersonResponse create(PersonRequest request) {
         User user = getCurrentUser();
         String createName = request.name().trim();
+        // 관계는 드롭다운 값이어야 한다. 등록 안 된 값을 조용히 미지정으로 떨어뜨리면
+        // 사용자는 골랐다고 생각하는데 카드에는 "관계 미정"이 뜬다 — 없으면 없다고 알려준다.
         String relation = relationshipService.normalize(request.relation());
+        if (relation == null) {
+            throw new CustomException(ErrorCode.INVALID_INPUT,
+                    "'%s'는 등록된 관계가 아닙니다. GET /api/relationships 목록에서 고르거나 POST로 먼저 추가해주세요."
+                            .formatted(request.relation().trim()));
+        }
         Person existing = firstByName(user.getUsername(), createName);
         Person person = existing != null
                 ? existing

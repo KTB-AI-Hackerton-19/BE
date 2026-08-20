@@ -106,17 +106,15 @@ public class GiftRecordService {
 
         validateDates(request.date(), request.reminderDate());
 
+        // 빠진 값은 여기서 하나씩 튕기지 않고 validateRequired가 한 번에 모아 알려준다.
         Sender sender = resolveSender(user, request.personId(), request.personName(), request.guestName(),
                 request.registerPerson(), request.relation());
-        if (sender.person() == null && sender.guestName() == null) {
-            throw new CustomException(ErrorCode.INVALID_INPUT, "보낸 사람(personId 또는 이름)을 입력해주세요.");
-        }
 
         RecordType recordType = RecordType.parseOrDefault(request.recordType());
         Category category = null;
         EventCategory eventCategory = null;
         if (recordType == RecordType.EVENT) {
-            eventCategory = requireEventCategory(request.eventCategory());
+            eventCategory = parseEventCategory(request.eventCategory());
         } else {
             category = categoryService.resolveOrFallback(request.categoryId(), request.category());
         }
@@ -128,6 +126,7 @@ public class GiftRecordService {
                 trimToNull(request.occasion()), trimToNull(request.gift()),
                 MoneyFormatter.parse(request.price()), request.date(), request.reminderDate(),
                 Boolean.TRUE.equals(request.thanked()));
+        validateRequired(record);
         giftRecordRepository.save(record);
 
         syncReminder(user, record);
@@ -221,12 +220,10 @@ public class GiftRecordService {
         EventCategory eventCategory = EventCategory.from(request.eventCategory());
 
         RecordType effectiveType = recordType != null ? recordType : record.getRecordType();
-        if (effectiveType == RecordType.EVENT) {
-            boolean requestedInvalidEventCategory = request.eventCategory() != null && eventCategory == null;
-            EventCategory effectiveEventCategory = eventCategory != null ? eventCategory : record.getEventCategory();
-            if (effectiveEventCategory == null || requestedInvalidEventCategory) {
-                throw new CustomException(ErrorCode.INVALID_INPUT, "경조사 유형을 정확히 선택해주세요.");
-            }
+        if (effectiveType == RecordType.EVENT
+                && request.eventCategory() != null && !request.eventCategory().isBlank() && eventCategory == null) {
+            // 유형을 보내긴 했는데 목록에 없는 값이다(오타). 미입력은 확정할 때 다른 항목과 함께 안내한다.
+            throw new CustomException(ErrorCode.INVALID_INPUT, "경조사 유형을 정확히 선택해주세요.");
         }
 
         record.applyUpdate(sender.person(), sender.guestName(),
@@ -236,11 +233,51 @@ public class GiftRecordService {
                 MoneyFormatter.parse(request.price()), request.date(), request.reminderDate(), request.thanked());
 
         if (request.confirm() == null || request.confirm()) {
+            validateRequired(record);
             record.confirm();
         }
 
         syncReminder(user, record);
         return toResponse(record);
+    }
+
+    /**
+     * 확정된 기록이 갖춰야 할 값. 화면의 입력 폼과 1:1로 맞춘다.
+     *
+     * <ul>
+     *   <li><b>경조사</b> — 유형 · 보낸 사람 · 금액</li>
+     *   <li><b>선물</b> — 보낸 사람 · 선물명 · 금액</li>
+     * </ul>
+     *
+     * <p>보낸 사람은 <b>이름만 있어도 된다.</b> 경조사 하객 수십 명을 전부 '사람들'에 올리지 않는 설계라,
+     * personId를 강제하면 그 흐름이 막힌다.</p>
+     *
+     * <p>빠진 항목은 <b>한 번에 모아서</b> 알려준다. 하나씩 튕기면 사용자가 저장을 세 번 눌러야 한다.
+     * AI가 만든 DRAFT는 값이 비어 있는 게 정상이라 여기를 통과하지 않는다 — 확정하는 순간에만 본다.</p>
+     */
+    private void validateRequired(GiftRecord record) {
+        List<String> missing = new ArrayList<>();
+        if (isBlank(record.displayName())) {
+            missing.add("보낸 사람");
+        }
+        if (record.getRecordType() == RecordType.EVENT) {
+            if (record.getEventCategory() == null) {
+                missing.add("경조사 유형");
+            }
+        } else if (isBlank(record.getGiftName())) {
+            missing.add("선물명");
+        }
+        if (record.getAmount() == null) {
+            missing.add("금액");
+        }
+        if (!missing.isEmpty()) {
+            throw new CustomException(ErrorCode.INVALID_INPUT,
+                    "다음 항목을 입력해주세요: " + String.join(", ", missing));
+        }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     /** {@link #resolveSender} 결과. 둘 중 하나만 채워지며, 둘 다 null이면 "보낸 사람 정보가 안 왔다"는 뜻이다. */
@@ -501,7 +538,16 @@ public class GiftRecordService {
     }
 
     /** 경조사는 고정 7종만 허용한다 — 매칭 안 되면 "기타"로 조용히 넘기지 않고 바로 실패시킨다. */
-    private EventCategory requireEventCategory(String raw) {
+    /**
+     * 경조사 유형 파싱.
+     *
+     * <p>값이 왔는데 목록에 없는 유형이면(오타) 그 자리에서 알려주고, <b>아예 안 온 경우는 null로 둔다</b> —
+     * 미입력은 다른 빠진 항목들과 함께 {@link #validateRequired}가 한 번에 안내한다.</p>
+     */
+    private EventCategory parseEventCategory(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
         EventCategory eventCategory = EventCategory.from(raw);
         if (eventCategory == null) {
             throw new CustomException(ErrorCode.INVALID_INPUT, "경조사 유형을 정확히 선택해주세요.");

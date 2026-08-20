@@ -11,7 +11,13 @@ import java.time.LocalDate;
  * <b>이름만 보내면 사람이 새로 만들어지지 않는다</b> — 사람으로 등록하려면 registerPerson=true를 함께 보낸다.
  * personId가 없으면 이름으로 기존 사람을 찾고, 없으면 새로 만든다.</p>
  */
-@Schema(description = "마음 기록 등록 요청")
+/*
+ * 필수값은 화면의 입력 폼과 같다.
+ *   경조사(recordType=EVENT) — 유형(eventCategory) · 보낸 사람 · 금액
+ *   선물(recordType=GIFT)   — 보낸 사람 · 선물명 · 금액
+ * 보낸 사람은 personId 없이 이름만 보내도 충족된다(경조사 하객). 빠진 항목은 400으로 한 번에 알려준다.
+ */
+@Schema(description = "마음 기록 등록 요청 (경조사: 유형·사람·금액 / 선물: 사람·선물명·금액 필수)")
 public record GiftRecordCreateRequest(
         @Schema(description = "보낸 사람 Person ID. 이미 등록된 사람을 고른 경우에만 사용", example = "3") Long personId,
 
@@ -50,9 +56,11 @@ public record GiftRecordCreateRequest(
 
         @Schema(description = "받은 이유 (자유 텍스트). recordType=GIFT일 때만 쓰인다", example = "내 생일") String occasion,
 
-        @Schema(description = "선물명", example = "스타벅스 케이크") String gift,
+        @Schema(description = "선물명 — <b>선물(GIFT) 기록에서 필수.</b> 경조사에서는 쓰지 않는다", example = "스타벅스 케이크")
+        String gift,
 
-        @Schema(description = "금액. 숫자(35000)와 문자열(\"35,000원\") 모두 허용 — 서버가 숫자만 뽑아 정수로 저장한다", example = "35,000원")
+        @Schema(description = "금액 — <b>필수(선물·경조사 공통).</b> 숫자(35000)와 문자열(\"35,000원\") 모두 허용 — "
+                + "서버가 숫자만 뽑아 정수로 저장한다", example = "35,000원")
         String price,
 
         @Schema(description = "받은 날짜", example = "2026-08-18")

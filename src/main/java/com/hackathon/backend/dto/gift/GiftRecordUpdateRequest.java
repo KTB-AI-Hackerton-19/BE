@@ -35,7 +35,9 @@ public record GiftRecordUpdateRequest(
         @Schema(description = "답례 알림일. 값을 주면 답례 알림이 생성/재조정된다", example = "2026-09-14") LocalDate reminderDate,
         @Schema(description = "감사 완료 여부", example = "false") Boolean thanked,
 
-        @Schema(description = "true면 이 요청으로 status를 CONFIRMED로 확정한다. 생략하면 true (모달 저장 = 확정)", example = "true")
+        @Schema(description = "true면 이 요청으로 status를 CONFIRMED로 확정한다. 생략하면 true (모달 저장 = 확정). "
+                + "<b>확정하는 요청에서만 필수값 검사가 돈다</b> — 경조사는 유형·사람·금액, 선물은 사람·선물명·금액. "
+                + "AI가 만든 DRAFT를 아직 채우는 중이라면 confirm=false로 보내면 검사 없이 저장된다", example = "true")
         Boolean confirm
 ) {
 }
