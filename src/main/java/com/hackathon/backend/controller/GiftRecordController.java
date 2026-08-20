@@ -13,6 +13,8 @@ import com.hackathon.backend.dto.gift.GiftRecordPersonLinkResponse;
 import com.hackathon.backend.dto.gift.GiftRecordResponse;
 import com.hackathon.backend.dto.gift.GiftRecordThankedRequest;
 import com.hackathon.backend.dto.gift.GiftRecordUpdateRequest;
+import com.hackathon.backend.exception.CustomException;
+import com.hackathon.backend.exception.ErrorCode;
 import com.hackathon.backend.service.GiftRecordService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -175,15 +177,28 @@ public class GiftRecordController {
     }
 
     @Operation(
-            summary = "마음 기록 삭제 (다중)",
-            description = "목록에서 여러 건을 체크해 한 번에 지울 때 사용한다. 각 기록에 딸린 답례 알림도 함께 삭제된다. "
-                    + "이미 지워졌거나 다른 사용자의 ID는 오류 없이 건너뛰고, 실제로 지워진 건수만 돌려주므로 "
-                    + "\"기록 3건을 삭제했어요\" 같은 안내에 그대로 쓰면 된다. ID를 하나도 보내지 않으면 400. "
-                    + "보낸 사람(Person)은 지우지 않는다 — 사람까지 지우려면 DELETE /api/people을 쓴다."
+            summary = "마음 기록 삭제 (다중 / 전체)",
+            description = "목록에서 여러 건을 체크해 한 번에 지울 때는 ?ids=1,2,3, 내 기록을 전부 비울 때는 ?all=true. "
+                    + "둘 중 하나만 보내야 하고, 아무것도 안 보내거나 둘 다 보내면 400이다. "
+                    + "어느 쪽이든 각 기록에 딸린 답례 알림이 함께 삭제되고, 실제로 지워진 건수를 돌려주므로 "
+                    + "\"기록 3건을 삭제했어요\" 같은 안내에 그대로 쓰면 된다. "
+                    + "ids 방식에서 이미 지워졌거나 다른 사용자의 ID는 오류 없이 건너뛴다. "
+                    + "**보낸 사람(Person)과 카테고리는 남는다** — 사람까지 지우려면 DELETE /api/people, "
+                    + "계정까지 지우려면 DELETE /api/users(회원탈퇴)를 쓴다. all=true는 되돌릴 수 없으니 "
+                    + "화면에서 한 번 확인받고 호출할 것."
     )
     @DeleteMapping
     public ApiResponse<GiftRecordDeleteResponse> deleteAll(
-            @Parameter(description = "삭제할 기록 ID 목록 (예: ?ids=1,2,3)") @RequestParam List<Long> ids) {
+            @Parameter(description = "삭제할 기록 ID 목록 (예: ?ids=1,2,3)")
+            @RequestParam(required = false) List<Long> ids,
+            @Parameter(description = "true면 내 마음 기록 전체를 삭제한다. ids와 함께 보낼 수 없다", example = "false")
+            @RequestParam(required = false, defaultValue = "false") boolean all) {
+        if (all) {
+            if (ids != null && !ids.isEmpty()) {
+                throw new CustomException(ErrorCode.INVALID_INPUT, "ids와 all=true는 함께 보낼 수 없습니다.");
+            }
+            return ApiResponse.success(giftRecordService.deleteAllOfUser());
+        }
         return ApiResponse.success(giftRecordService.deleteAll(ids));
     }
 }

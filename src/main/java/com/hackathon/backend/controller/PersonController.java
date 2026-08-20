@@ -8,6 +8,8 @@ import com.hackathon.backend.dto.person.PersonDeleteResponse;
 import com.hackathon.backend.dto.person.PersonRequest;
 import com.hackathon.backend.dto.person.PersonResponse;
 import com.hackathon.backend.dto.recommendation.RecommendationResponse;
+import com.hackathon.backend.exception.CustomException;
+import com.hackathon.backend.exception.ErrorCode;
 import com.hackathon.backend.service.GiftRecordService;
 import com.hackathon.backend.service.PersonService;
 import com.hackathon.backend.service.RecommendationService;
@@ -137,14 +139,27 @@ public class PersonController {
     }
 
     @Operation(
-            summary = "사람 삭제 (다중)",
-            description = "목록에서 여러 명을 체크해 한 번에 지울 때 사용한다. 각 사람의 기록·알림·추천도 함께 삭제된다. "
-                    + "이미 지워졌거나 다른 사용자의 ID는 오류 없이 건너뛰고, 실제로 지워진 건수만 돌려준다. "
-                    + "ID를 하나도 보내지 않으면 400."
+            summary = "사람 삭제 (다중 / 전체)",
+            description = "목록에서 여러 명을 체크해 한 번에 지울 때는 ?ids=1,2,3, 내 사람을 전부 비울 때는 ?all=true. "
+                    + "둘 중 하나만 보내야 하고, 아무것도 안 보내거나 둘 다 보내면 400이다. "
+                    + "어느 쪽이든 각 사람의 마음 기록·답례 알림·선물 추천이 함께 삭제되고, 실제로 지워진 건수를 돌려준다. "
+                    + "ids 방식에서 이미 지워졌거나 다른 사용자의 ID는 오류 없이 건너뛴다. "
+                    + "**사람이 지정되지 않은 기록(경조사 하객 등 이름만 있는 건)은 남는다** — 지울 사람이 없기 때문이다. "
+                    + "계정까지 지우려면 DELETE /api/users(회원탈퇴)를 쓴다. all=true는 되돌릴 수 없으니 "
+                    + "화면에서 한 번 확인받고 호출할 것."
     )
     @DeleteMapping
     public ApiResponse<PersonDeleteResponse> deleteAll(
-            @Parameter(description = "삭제할 사람 ID 목록 (예: ?ids=1,2,3)") @RequestParam List<Long> ids) {
+            @Parameter(description = "삭제할 사람 ID 목록 (예: ?ids=1,2,3)")
+            @RequestParam(required = false) List<Long> ids,
+            @Parameter(description = "true면 내 사람 전체를 삭제한다. ids와 함께 보낼 수 없다", example = "false")
+            @RequestParam(required = false, defaultValue = "false") boolean all) {
+        if (all) {
+            if (ids != null && !ids.isEmpty()) {
+                throw new CustomException(ErrorCode.INVALID_INPUT, "ids와 all=true는 함께 보낼 수 없습니다.");
+            }
+            return ApiResponse.success(personService.deleteAllOfUser());
+        }
         return ApiResponse.success(personService.deleteAll(ids));
     }
 }

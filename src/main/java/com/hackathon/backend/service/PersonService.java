@@ -168,6 +168,18 @@ public class PersonService {
     }
 
     /**
+     * 내 사람 <b>전부</b> 삭제. 각 사람의 마음 기록·답례 알림·선물 추천이 함께 사라진다.
+     *
+     * <p>사람이 없어지면 그 사람이 준 기록도 의미가 없어지므로 기록까지 지운다(단일·다중 삭제와 같은 규칙).
+     * 계정과 카테고리는 남는다 — 계정까지 지우려면 {@code DELETE /api/users}(회원탈퇴)를 쓴다.</p>
+     */
+    @Transactional
+    public PersonDeleteResponse deleteAllOfUser() {
+        String username = SecurityUtils.getCurrentUsername();
+        return deletePeople(username, personRepository.findByUser_UsernameOrderByNameAsc(username));
+    }
+
+    /**
      * 삭제 순서가 중요하다. 사람을 참조하는 쪽(추천·알림·기록)을 먼저 비워야 FK 제약에 걸리지 않는다.
      * 기록을 남겨두면 "보낸 사람이 사라진 기록"이 되어 목록·타임라인·통계가 전부 깨지므로 함께 지운다.
      */

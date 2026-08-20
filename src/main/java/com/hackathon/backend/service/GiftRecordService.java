@@ -402,6 +402,18 @@ public class GiftRecordService {
     }
 
     /**
+     * 내 마음 기록 <b>전부</b> 삭제. 딸린 답례 알림도 함께 사라진다.
+     *
+     * <p>사람·카테고리·계정은 남는다 — 기록만 비우고 다시 쌓고 싶은 경우(시연 초기화 등)를 위한 것이다.
+     * 계정까지 통째로 지우려면 {@code DELETE /api/users}(회원탈퇴)를 쓴다.</p>
+     */
+    @Transactional
+    public GiftRecordDeleteResponse deleteAllOfUser() {
+        String username = SecurityUtils.getCurrentUsername();
+        return deleteRecords(giftRecordRepository.findByUser_UsernameOrderByReceivedDateDescIdDesc(username));
+    }
+
+    /**
      * 삭제 순서가 중요하다. 기록을 참조하는 답례 알림을 먼저 비워야 FK 제약에 걸리지 않는다.
      * 사람(Person)은 건드리지 않는다 — 기록이 없어졌다고 상대방을 목록에서 지울 이유가 없다.
      */
