@@ -38,7 +38,7 @@ public class DashboardController {
     public ApiResponse<DashboardResponse> get(
             @Parameter(description = "최근 받은 마음 개수 (기본 4, 최대 20)", example = "4")
             @RequestParam(required = false) Integer recentLimit,
-            @Parameter(description = "선물 추천 개수 (기본 3, 최대 10)", example = "3")
+            @Parameter(description = "선물 추천 개수 (기본 3, 최대 3 — 화면이 3열 한 줄이라 상한을 3으로 고정)", example = "3")
             @RequestParam(required = false) Integer recommendationLimit) {
         return ApiResponse.success(dashboardService.getDashboard(recentLimit, recommendationLimit));
     }

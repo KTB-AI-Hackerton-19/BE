@@ -41,7 +41,7 @@ public class RecommendationController {
     )
     @GetMapping
     public ApiResponse<List<PersonRecommendationResponse>> list(
-            @Parameter(description = "사람 한 명당 추천 선물 개수 (기본 3, 최대 10)", example = "3")
+            @Parameter(description = "사람 한 명당 추천 선물 개수 (기본 3, 최대 3 — 화면이 3열 한 줄이라 상한을 3으로 고정)", example = "3")
             @RequestParam(required = false) Integer limit,
             @Parameter(description = "true면 저장된 추천을 버리고 새로 생성 ('다시 추천받기')", example = "false")
             @RequestParam(required = false, defaultValue = "false") boolean refresh,

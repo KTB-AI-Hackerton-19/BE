@@ -98,5 +98,9 @@ public record AiRecommendResponse(
              */
             String thankYouMessage
     ) {
+        /** 같은 카드에 답례 문구만 바꿔 끼운다. 개수를 채우려고 넣은 기본 카드에 AI 문구를 옮길 때 쓴다. */
+        public Item withMessage(String message) {
+            return new Item(emoji, name, amount, tag, reason, productUrl, aiCategory, message);
+        }
     }
 }

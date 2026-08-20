@@ -68,7 +68,7 @@ public class DashboardService {
                 giftRecordService.search(null, null, null, null, null, null, null, null, null, null, "latest", 0, recent);
 
         int recommendCount = (recommendationLimit == null || recommendationLimit <= 0)
-                ? DEFAULT_RECOMMENDATION_LIMIT : Math.min(recommendationLimit, 10);
+                ? DEFAULT_RECOMMENDATION_LIMIT : Math.min(recommendationLimit, RecommendationService.MAX_LIMIT);
         // 추천 대상 선정은 RecommendationService 한 곳에서만 판단한다.
         // 대시보드가 따로 고르면 홈과 추천 목록이 서로 다른 사람을 추천하게 된다.
         // 다만 그룹마다 AI를 부르므로 홈에서는 수를 제한해 첫 진입이 느려지지 않게 한다.

@@ -1,5 +1,6 @@
 package com.hackathon.backend.client;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,17 +85,49 @@ public class AiRecommendationClient {
                             : info.recommendGift().categories().stream()
                                     .map(AiRecommendResponse.Category::category).toList());
 
+            String message = GiftRecommendationMapper.messageOf(info);
             List<AiRecommendResponse.Item> items = GiftRecommendationMapper.toItems(
-                    info.recommendGift(), GiftRecommendationMapper.messageOf(info), limit);
+                    info.recommendGift(), message, limit);
             if (items.isEmpty()) {
                 return fallback("추천 카테고리/상품이 비어 있습니다.", request.personName());
             }
-            return new AiRecommendResponse.Result(items, false);
+            return new AiRecommendResponse.Result(pad(items, limit, request.personName(), message), false);
         } catch (RestClientResponseException e) {
             return fallback("AI %s: %s".formatted(e.getStatusCode(), e.getResponseBodyAsString()), request.personName());
         } catch (RestClientException e) {
             return fallback("호출 실패: " + e.getMessage(), request.personName());
         }
+    }
+
+    /**
+     * 카드 수를 {@code limit}장으로 맞춘다. 모자란 만큼만 기본 카드로 채운다.
+     *
+     * <p>AI가 요청한 수보다 적게 주는 일이 흔하다 — 카테고리를 좁혀 보내면 그 카테고리의 상품 예시 수가
+     * 그대로 카드 수 상한이 되기 때문이다(카테고리 1개 → 예시 2개 → 카드 2장). 화면은 3열 한 줄이라
+     * 한 장이 비면 눈에 띄고, "추천이 고장났나"로 보인다. 그래서 <b>개수만</b> 채운다 —
+     * 전부 더미로 바꾸는 게 아니라 AI가 준 카드는 그대로 두므로, 폴백 표시({@code fallback})는 붙이지 않는다
+     * (붙이면 멀쩡한 세트를 백그라운드가 계속 새로 만들려 든다).</p>
+     */
+    private List<AiRecommendResponse.Item> pad(List<AiRecommendResponse.Item> items, int limit,
+                                               String personName, String message) {
+        if (items.size() >= limit) {
+            return items;
+        }
+        log.warn("AI 추천이 {}장뿐이라 기본 카드로 {}장 채웁니다. (요청 {}장)", items.size(), limit - items.size(), limit);
+
+        List<String> names = items.stream().map(AiRecommendResponse.Item::name).toList();
+        List<AiRecommendResponse.Item> padded = new ArrayList<>(items);
+        for (AiRecommendResponse.Item spare : dummyItems(personName)) {
+            if (padded.size() >= limit) {
+                break;
+            }
+            if (names.contains(spare.name())) {
+                continue;
+            }
+            // 답례 문구는 AI가 써준 것이 있으면 그걸 쓴다. 한 세트 안에서 카드마다 다른 문구가 섞이면 안 된다.
+            padded.add(message == null ? spare : spare.withMessage(message));
+        }
+        return padded;
     }
 
     private String trimTrailingSlash(String url) {

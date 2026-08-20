@@ -62,6 +62,14 @@ public class RecommendationService {
     public static final int DEFAULT_LIMIT = 3;
 
     /**
+     * 한 대상에게 보여줄 추천 카드 수 <b>상한</b>. 화면(recommend-grid)이 3열 한 줄이라 4장부터는 줄이 늘어난다.
+     *
+     * <p>{@link #DEFAULT_LIMIT}과 같은 값이라 사실상 "항상 3장"이다. 그래도 상수를 따로 두는 건
+     * {@code ?limit=} 로 들어온 값이 이 상한을 넘지 못하게 하는 자리가 필요해서다.</p>
+     */
+    public static final int MAX_LIMIT = 3;
+
+    /**
      * 캐시를 버린 직후 <b>백그라운드로</b> 다시 채워둘 사람 수 상한.
      *
      * <p>같은 날짜에 답례할 사람이 여럿이면 그 수만큼 AI를 부르게 되므로 상한을 둔다.
@@ -145,7 +153,7 @@ public class RecommendationService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-        int size = (limit == null || limit <= 0) ? DEFAULT_LIMIT : Math.min(limit, 10);
+        int size = (limit == null || limit <= 0) ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
         LocalDate today = LocalDate.now();
 
         List<Occasion> occasions = upcomingOccasions(username, today);
@@ -392,7 +400,7 @@ public class RecommendationService {
                 : personRepository.findByIdAndUser_Username(personId, username)
                         .orElseThrow(() -> new CustomException(ErrorCode.PERSON_NOT_FOUND));
 
-        int size = (limit == null || limit <= 0) ? DEFAULT_LIMIT : Math.min(limit, 10);
+        int size = (limit == null || limit <= 0) ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
         List<RecommendationResponse> gifts = recommendFor(user, username, person, null, size, refresh).stream()
                 .map(RecommendationResponse::from)
                 .toList();
